@@ -1292,7 +1292,7 @@
   }
 
   function startGame(mode){
-    clearTimeout(respawnTimer);
+    clearTimeout(respawnTimer); shakeTimer = 0;
     dualMode = (mode==='dual');
     endlessMode = (mode==='endless');
     document.body.classList.add('running');
@@ -1320,7 +1320,7 @@
   btnEndless.addEventListener('click', ()=>startGame('endless'));
 
   function gameOver(win){
-    running=false; document.body.classList.remove('running'); bgmStop();
+    running=false; document.body.classList.remove('running'); bgmStop(); shakeTimer = 0;
     ovTitle.textContent = win ? '胜利！' : '游戏结束';
     const modeLabel = endlessMode ? '波次' : '关卡';
     let extra = '';
@@ -1333,7 +1333,7 @@
 
   function backToMenu(){
     clearTimeout(respawnTimer);
-    running = false; bgmStop();
+    running = false; bgmStop(); shakeTimer = 0;
     document.body.classList.remove('running');
     ovTitle.textContent = '坦克大战';
     ovText.innerHTML = '<span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！';
@@ -1357,7 +1357,7 @@
   });
 
   function reloadLevel(){
-    clearTimeout(respawnTimer);
+    clearTimeout(respawnTimer); shakeTimer = 0;
     running = true;
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0;
     spawnTimer = endlessMode ? 120 : 0; pickupTimer = 0;
