@@ -35,12 +35,19 @@ Mobile: touch d-pad + fire button auto-detected.
 | bomb | kill all enemies on screen |
 | apbullet | 5s bullets pierce steel walls |
 | repair | restore 2 base HP + repair surrounding brick walls |
+| medkit | restore 2 player HP |
 
 Drop chance on enemy kill: 30%. Max 3 on screen.
 
+## HP System
+
+Each life has `playerHP` / `playerMaxHP` (default 5). Bullets -1 HP, suicide -2 HP. At 0 HP → lose a life, respawn full HP.
+
+**medkit** pickup restores 2 HP. Level-clear "回血" option available when HP < max.
+
 ## Permanent Upgrades (level clear)
 
-❤ +1HP | ✚ +1 life | ⚡ +15% speed
+❤ +1 max HP | ✚ +1 life | ⚡ +15% speed | ❤️‍🩹 heal to full (if damaged)
 
 ## Enemy Types
 

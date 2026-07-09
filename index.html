@@ -598,10 +598,10 @@
       const v = tileAt(x,y);
       if (v===1||v===2||v===3||v===5) return false;
     }
-    // 不重叠其他坦克
+    // 不重叠其他坦克（自爆兵除外：需要碰到目标才能爆炸）
     const box = {x:nx,y:ny,w:t.w,h:t.h};
-    if (t!==player && player.alive && rectsOverlap(box,player)) return false;
-    if (dualMode && t!==player2 && player2 && player2.alive && rectsOverlap(box,player2)) return false;
+    if (t.type !== 'suicide' && t!==player && player.alive && rectsOverlap(box,player)) return false;
+    if (dualMode && t.type !== 'suicide' && t!==player2 && player2 && player2.alive && rectsOverlap(box,player2)) return false;
     if (ally && ally.alive && t!==ally && rectsOverlap(box,ally)) return false;
     for (const e of enemies) if (e!==t && e.alive && rectsOverlap(box,e)) return false;
     return true;
