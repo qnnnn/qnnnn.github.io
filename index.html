@@ -109,6 +109,9 @@
   .is-touch #touch-controls { display: flex; }
   .is-touch #panel { width: 130px; font-size: 12px; }
   .is-touch #btn2p, .is-touch #btnEndless { display: none; }
+  .is-touch #panel .box:nth-child(3) { display: none; }
+  .is-touch #overlay p br:first-child { display: none; }
+  .is-touch #overlay p .pc-only { display: none; }
   .dpad { position: relative; width: 140px; height: 140px; flex-shrink: 0; }
   .dpad-btn {
     position: absolute;
@@ -190,7 +193,7 @@
   </div>
   <div id="overlay">
     <h1 id="ovTitle">坦克大战</h1>
-    <p id="ovText">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br>P 暂停 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！</p>
+    <p id="ovText"><span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
       <button class="btn" id="btn1p">单人模式</button>
       <button class="btn" id="btn2p">双人模式</button>
@@ -1282,7 +1285,7 @@
     running = false; bgmStop();
     document.body.classList.remove('running');
     ovTitle.textContent = '坦克大战';
-    ovText.innerHTML = '操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！';
+    ovText.innerHTML = '<span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！';
     btnRetry.style.display = 'none';
     overlay.classList.remove('hidden');
   }
