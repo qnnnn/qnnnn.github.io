@@ -728,6 +728,9 @@
             if (playerHP <= 0){
               explode(player.x+player.w/2,player.y+player.h/2,player.color);
               player.alive = false; lives--; livesEl.textContent=lives;
+              if (dualMode){ if (lives<=0 && p2lives<=0) gameOver(false); }
+              else if (lives<=0) gameOver(false);
+              else setTimeout(spawnPlayer, 800);
             }
           }
           hit = true;
