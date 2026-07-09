@@ -920,7 +920,15 @@
     enemies = enemies.filter(e=>e.alive);
     enemiesEl.textContent = enemies.length;
 
-    // 关卡过关判定（放在生成敌人之前，避免竞态）
+    // 生成敌人（先于过关判定，避免空场时直接判胜）
+    const maxEnemies = Math.min(1 + Math.floor((level-1) * 0.6), 5);
+    if (enemies.length < maxEnemies && spawnTimer<=0){
+      spawnEnemy(); spawnTimer = 180 + ((Math.random()*120)|0) - level*10;
+      if (spawnTimer < 60) spawnTimer = 60;
+    }
+    if (spawnTimer>0) spawnTimer--;
+
+    // 关卡过关判定
     if (!upgradePending && base.alive) {
       let done = false;
       if (level % 5 === 0) {
@@ -937,14 +945,6 @@
         showUpgradeScreen();
       }
     }
-
-    // 生成敌人
-    const maxEnemies = Math.min(1 + Math.floor((level-1) * 0.6), 5);
-    if (enemies.length < maxEnemies && spawnTimer<=0){
-      spawnEnemy(); spawnTimer = 180 + ((Math.random()*120)|0) - level*10;
-      if (spawnTimer < 60) spawnTimer = 60;
-    }
-    if (spawnTimer>0) spawnTimer--;
 
     // 道具生成
     if (pickupTimer <= 0 && pickups.length < 1){
