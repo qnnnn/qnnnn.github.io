@@ -495,9 +495,9 @@
     ally = makeTank(true);
     ally.x = 20 * TILE; ally.y = (ROWS-3) * TILE;
     ally.color = '#44ddff';
-    ally.speed = 1.2;
-    ally.hp = 3;
-    ally.maxHp = 3;
+    ally.speed = 0.9;
+    ally.hp = 2;
+    ally.maxHp = 2;
   }
 
   function spawnPickup(){
@@ -812,7 +812,7 @@
         ally.aiTimer = 15 + ((Math.random()*20)|0);
       }
       moveTank(ally);
-      if (target && ally.cooldown <= 0) {
+      if (target && ally.cooldown <= 0 && Math.random() < 0.7) {
         ally.dir = dirTowards(ally, target);
         shoot(ally);
       }
@@ -871,7 +871,7 @@
         if (ally && ally.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},ally)){
           b.dead=true; explode(b.x,b.y,'#4af'); sfx.hit();
           ally.hp--;
-          if (ally.hp <= 0) { ally.alive=false; allyRespawnTimer=300; }
+          if (ally.hp <= 0) { ally.alive=false; allyRespawnTimer=480; }
           continue;
         }
         if (player.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},player)){
