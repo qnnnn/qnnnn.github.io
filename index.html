@@ -213,6 +213,7 @@
     <div class="fire-wrap">
       <div class="fire-btn" id="btnFire">开火</div>
       <div class="tc-pause" id="btnPause">⏸</div>
+      <div class="tc-pause" id="btnMenu" style="margin-top:4px;width:44px;height:22px;font-size:10px;">菜单</div>
     </div>
   </div>
 </div>
@@ -1275,6 +1276,15 @@
     overlay.classList.remove('hidden');
   }
 
+  function backToMenu(){
+    running = false; bgmStop();
+    document.body.classList.remove('running');
+    ovTitle.textContent = '坦克大战';
+    ovText.innerHTML = '操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！';
+    btnRetry.style.display = 'none';
+    overlay.classList.remove('hidden');
+  }
+
   btnRetry.addEventListener('click', ()=>{
     btnRetry.style.display = 'none';
     reloadLevel();
@@ -1349,6 +1359,9 @@
     if ((k==='l'||k==='L') && running && !upgradePending && base.alive){
       upgradePending=true; paused=true; sfx.level(); showUpgradeScreen();
     }
+    if ((k==='m'||k==='M') && running && !upgradePending){
+      backToMenu();
+    }
   });
   window.addEventListener('keyup', e=>{
     const k = e.key;
@@ -1397,6 +1410,10 @@
     document.getElementById('btnPause').addEventListener('touchstart', e=>{
       e.preventDefault(); if (!running) return;
       paused = !paused; if (paused) bgmStop(); else bgmPlay();
+    }, {passive:false});
+    document.getElementById('btnMenu').addEventListener('touchstart', e=>{
+      e.preventDefault(); if (!running) return;
+      backToMenu();
     }, {passive:false});
   }
   setupTouch();
