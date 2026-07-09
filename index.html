@@ -322,56 +322,62 @@
   }
 
   const LAYOUTS = [
-    // 0: 十字路口 — 中心开阔，4角砖墙，8根钢柱
+    // 0: 十字路口 — 4个砖砌房间+钢柱，中心十字通路
     function(){
-      for (let c of [6,10,14,18]){ map[8][c]=2; map[16][c]=2; }
-      map[12][6]=2; map[12][18]=2;
-      for (let r=4;r<=6;r++) for (let c=4;c<=6;c++) if (map[r][c]===0) map[r][c]=1;
-      for (let r=4;r<=6;r++) for (let c=19;c<=21;c++) if (map[r][c]===0) map[r][c]=1;
-      for (let r=20;r<=22;r++) for (let c=4;c<=6;c++) if (map[r][c]===0) map[r][c]=1;
-      for (let r=20;r<=22;r++) for (let c=19;c<=21;c++) if (map[r][c]===0) map[r][c]=1;
+      map[9][6]=2; map[9][19]=2; map[16][6]=2; map[16][19]=2;
+      map[12][6]=2; map[12][19]=2; map[9][12]=2; map[16][12]=2;
+      for (let r=4;r<=8;r++) for (let c=4;c<=8;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let r=4;r<=8;r++) for (let c=17;c<=21;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let r=17;r<=21;r++) for (let c=4;c<=8;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let r=17;r<=21;r++) for (let c=17;c<=21;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let i=0;i<6;i++){ const r=5+((Math.random()*22)|0),c=10+((Math.random()*6)|0); if (map[r][c]===0) map[r][c]=4; }
     },
-    // 1: 之字走廊 — 两条S形砖墙
+    // 1: 之字战壕 — S形砖墙走廊，两侧草地伏击位
     function(){
-      for (let i=0;i<4;i++){ const r=5+i*3; for (let c=5;c<=10;c++) map[r][c]=1; }
-      for (let i=0;i<4;i++){ const r=7+i*3; for (let c=15;c<=20;c++) map[r][c]=1; }
-      for (let i=0;i<4;i++) map[6+i*3][12]=2;
+      for (let i=0;i<4;i++){ const r=4+i*3; for (let c=4;c<=10;c++) map[r][c]=1; }
+      for (let i=0;i<4;i++){ const r=6+i*3; for (let c=15;c<=21;c++) map[r][c]=1; }
+      for (let i=0;i<4;i++) map[5+i*3][12]=2;
+      for (let i=0;i<6;i++){ const r=8+((Math.random()*16)|0),c=2+((Math.random()*4)|0); if (map[r][c]===0) map[r][c]=4; }
+      for (let i=0;i<6;i++){ const r=8+((Math.random()*16)|0),c=19+((Math.random()*4)|0); if (map[r][c]===0) map[r][c]=4; }
     },
-    // 2: 堡垒 — 左右两个砖砌堡垒，钢墙加固
+    // 2: 双塔 — 左右两座砖堡，钢墙加固，中央开阔
     function(){
-      for (let r=5;r<=10;r++) for (let c=4;c<=8;c++) if (map[r][c]===0) map[r][c]=1;
-      for (let r=5;r<=10;r++) for (let c=17;c<=21;c++) if (map[r][c]===0) map[r][c]=1;
-      for (let r=15;r<=20;r++) for (let c=4;c<=8;c++) if (map[r][c]===0) map[r][c]=1;
-      for (let r=15;r<=20;r++) for (let c=17;c<=21;c++) if (map[r][c]===0) map[r][c]=1;
-      map[5][6]=2; map[5][19]=2; map[15][6]=2; map[15][19]=2;
-      map[10][6]=2; map[10][19]=2; map[20][6]=2; map[20][19]=2;
+      for (let r=5;r<=10;r++) for (let c=4;c<=9;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let r=5;r<=10;r++) for (let c=16;c<=21;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let r=14;r<=19;r++) for (let c=4;c<=9;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let r=14;r<=19;r++) for (let c=16;c<=21;c++) if (map[r][c]===0) map[r][c]=1;
+      map[5][6]=2; map[5][19]=2; map[14][6]=2; map[14][19]=2;
+      map[10][6]=2; map[10][19]=2; map[19][6]=2; map[19][19]=2;
+      if (level>=3) for (let i=0;i<4;i++){ const r=7+((Math.random()*12)|0),c=11+((Math.random()*4)|0); if (map[r][c]===0) map[r][c]=5; }
     },
-    // 3: 迷宫 — 密集砖墙迷宫，钢墙交叉点
+    // 3: 迷宫 — 密集砖墙+6根随机钢柱，多条路径
     function(){
       for (let c=5;c<=20;c+=3) for (let r=4;r<=22;r+=3) if (map[r][c]===0) map[r][c]=1;
       for (let r=6;r<=20;r+=3) for (let c=6;c<=19;c+=3) if (map[r][c]===0) map[r][c]=1;
-      for (let i=0;i<6;i++){ const r=5+((Math.random()*18)|0), c=5+((Math.random()*16)|0); if (map[r][c]===0) map[r][c]=2; }
+      for (let i=0;i<8;i++){ const r=5+((Math.random()*18)|0),c=5+((Math.random()*16)|0); if (map[r][c]===0) map[r][c]=2; }
     },
-    // 4: 竞技场 — 中央环形砖墙，四周开放
+    // 4: 竞技场 — 中央八角形砖环，四角钢柱，外围冰面
     function(){
       for (let a=0;a<8;a++){
         const angle = a*Math.PI/4;
-        for (let d=3;d<=5;d++){
-          const r = (13 + Math.sin(angle)*d)|0, c = (13 + Math.cos(angle)*d)|0;
+        for (let d=4;d<=6;d++){
+          const r = (14 + Math.sin(angle)*d)|0, c = (13 + Math.cos(angle)*d)|0;
           if (r>=3&&r<ROWS-2&&c>=3&&c<COLS-2) map[r][c]=1;
         }
       }
-      for (let i=0;i<4;i++){ const r=6+i*6; map[r][6]=2; map[r][19]=2; map[6][r]=2; map[19][r]=2; }
+      for (let i=0;i<4;i++){ const r=5+i*7; map[r][5]=2; map[r][20]=2; map[5][r]=2; map[20][r]=2; }
+      if (level>=5) for (let r=8;r<=18;r++) for (let c=10;c<=15;c++) if (map[r][c]===0 && Math.random()<0.25) map[r][c]=6;
     },
-    // 5: 要塞 — 中心钢墙要塞，外围砖墙，狭窄通道
+    // 5: 要塞 — 中心钢堡+四角砖塔，狭窄通道
     function(){
-      for (let r=8;r<=17;r++) for (let c=8;c<=17;c++) if (map[r][c]===0){
-        if (r===8||r===17||c===8||c===17){ map[r][c]=2; } else { map[r][c]=1; }
+      for (let r=9;r<=17;r++) for (let c=9;c<=16;c++) if (map[r][c]===0){
+        if (r===9||r===17||c===9||c===16){ map[r][c]=2; } else { map[r][c]=1; }
       }
-      map[8][12]=0; map[17][12]=0; map[12][8]=0; map[12][17]=0;
-      for (let r=4;r<=7;r++) for (let c=4;c<=21;c++) if (map[r][c]===0 && (c<9||c>17)) map[r][c]=1;
-      for (let r=18;r<=21;r++) for (let c=4;c<=21;c++) if (map[r][c]===0 && (c<9||c>17)) map[r][c]=1;
-      map[6][4]=2; map[6][21]=2; map[19][4]=2; map[19][21]=2;
+      map[9][12]=0; map[17][12]=0; map[13][9]=0; map[13][16]=0;
+      for (let r=5;r<=8;r++) for (let c=5;c<=7;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let r=5;r<=8;r++) for (let c=18;c<=20;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let r=18;r<=21;r++) for (let c=5;c<=7;c++) if (map[r][c]===0) map[r][c]=1;
+      for (let r=18;r<=21;r++) for (let c=18;c<=20;c++) if (map[r][c]===0) map[r][c]=1;
     },
   ];
 
@@ -386,7 +392,7 @@
     const layoutIdx = (level-1) % LAYOUTS.length;
     LAYOUTS[layoutIdx]();
     // 随机补砖（填补空旷区域）
-    for (let i=0;i<20;i++){
+    for (let i=0;i<10;i++){
       const r = 3+((Math.random()*(ROWS-6))|0), c = 3+((Math.random()*(COLS-6))|0);
       if (map[r][c]===0 && !(r>=ROWS-4 && c>=bc-4 && c<=bc+4)) map[r][c]=1;
     }
@@ -430,12 +436,19 @@
     map = Array.from({length: ROWS}, () => Array(COLS).fill(0));
     for (let c=0;c<COLS;c++){ map[0][c]=2; map[ROWS-1][c]=2; }
     for (let r=0;r<ROWS;r++){ map[r][0]=2; map[r][COLS-1]=2; }
-    const pillars = [[5,5],[5,14],[5,20],[12,5],[12,20],[19,5],[19,14],[19,20]];
+    const pillars = [[5,5],[5,20],[19,5],[19,20]];
     for (const [r,c] of pillars) {
       for (let dr=0;dr<2;dr++) for (let dc=0;dc<2;dc++) {
         if (r+dr>0&&r+dr<ROWS-1&&c+dc>0&&c+dc<COLS-1) map[r+dr][c+dc]=1;
       }
     }
+    // 中央四根钢柱
+    for (const c of [10,15]) for (const r of [10,15]) map[r][c]=2;
+    // 两侧砖墙掩体
+    for (let r=7;r<=9;r++){ map[r][3]=1; map[r][22]=1; }
+    for (let r=17;r<=19;r++){ map[r][3]=1; map[r][22]=1; }
+    // 草地伏击点
+    for (let i=0;i<8;i++){ const r=6+((Math.random()*20)|0),c=8+((Math.random()*10)|0); if (map[r][c]===0) map[r][c]=4; }
     for (const c of [2, (COLS/2)|0, COLS-3]) { map[2][c]=0; }
     for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=3;c<=4;c++) map[r][c]=0;
     for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=22;c<=23;c++) map[r][c]=0;
