@@ -256,7 +256,7 @@
   let shieldTimer=0, bulletUpgraded=false, doubleShot=false, baseShieldTimer=0, freezeTimer=0, allyRespawnTimer=0, apBulletTimer=0, shakeTimer=0, shakeIntensity=0;
   let permHP=0, permLives=0, permSpeed=0;
   let playerHP=5, playerMaxHP=5;
-  let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false;
+  let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, waveSpawned=false;
   let keys = {};
 
   // ===== 音效 (Web Audio 8-bit 风格) =====
@@ -579,6 +579,7 @@
       e.x = x; e.y = spotsY;
       e.dir = 'down';
       enemies.push(e);
+      waveSpawned = true;
       return;
     }
     // 三个点都被占，等待下次
@@ -925,7 +926,7 @@
       if (level % 5 === 0) {
         if (boss && !boss.alive) done = true;
       } else if (endlessMode) {
-        if (enemies.length === 0 && spawnTimer <= 0) done = true;
+        if (waveSpawned && enemies.length === 0 && spawnTimer <= 0) done = true;
       } else {
         if (score >= level*1500) done = true;
       }
@@ -1026,7 +1027,7 @@
   function nextLevel(){
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0;
     shieldTimer = 0; bulletUpgraded = false; doubleShot = false; baseShieldTimer = 0; freezeTimer = 0; apBulletTimer = 0;
-    spawnTimer = endlessMode ? 120 : 0;
+    spawnTimer = endlessMode ? 120 : 0; waveSpawned = false;
     if (level % 5 === 0){
       generateBossArena();
       spawnPlayer(); spawnAlly();
@@ -1248,7 +1249,7 @@
     bullets=[]; particles=[]; enemies=[]; spawnTimer=0; pickups=[]; boss=null; ally=null; allyRespawnTimer=0;
     shieldTimer=0; bulletUpgraded=false; doubleShot=false; baseShieldTimer=0; freezeTimer=0; pickupTimer=0;
     permHP=0; permLives=0; permSpeed=0; upgradePending=false;
-    playerHP=5; playerMaxHP=5;
+    playerHP=5; playerMaxHP=5; waveSpawned=false;
     document.getElementById('levelLabel').textContent = endlessMode ? '波次' : '关卡';
     emptyMap(); spawnPlayer();
     spawnTimer = endlessMode ? 120 : 0;
