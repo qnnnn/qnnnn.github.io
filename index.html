@@ -262,7 +262,7 @@
   let permHP=0, permLives=0, permSpeed=0;
   let playerHP=5, playerMaxHP=5;
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, waveSpawned=false;
-  let keys = {};
+  let keys = {}, respawnTimer = null;
 
   // ===== 音效 (Web Audio 8-bit 风格) =====
   let actx = null;
@@ -304,6 +304,7 @@
     [440,0.2],[392,0.2],[349,0.4],[262,0.4],
   ];
   function bgmPlay(){
+    bgmStop();
     if (!running || muted || paused) return;
     bgmIdx = 0; bgmNext();
   }
@@ -730,13 +731,20 @@
               player.alive = false; lives--; livesEl.textContent=lives;
               if (dualMode){ if (lives<=0 && p2lives<=0) gameOver(false); }
               else if (lives<=0) gameOver(false);
-              else setTimeout(spawnPlayer, 800);
+              else respawnTimer = setTimeout(()=>{ if (running) spawnPlayer(); }, 800);
             }
           }
           hit = true;
         }
         if (!hit && dualMode && player2 && player2.alive && rectsOverlap(e, player2)){
           player2.alive = false; p2lives--; p2livesEl.textContent=p2lives; hit = true;
+          if (p2lives<=0 && lives<=0) gameOver(false);
+          else setTimeout(()=>{
+            if (!dualMode || !running) return;
+            for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=22;c<=23;c++) if (map[r]&&map[r][c]===1) map[r][c]=0;
+            player2 = makeTank(true);
+            player2.x=22*TILE; player2.y=(ROWS-3)*TILE; player2.color='#4488ff';
+          }, 800);
         }
         if (!hit){
           const tc = (e.x/TILE)|0, tr = (e.y/TILE)|0;
@@ -899,7 +907,7 @@
             lives--; livesEl.textContent=lives;
             if (dualMode){ if (lives<=0 && p2lives<=0) gameOver(false); }
             else if (lives<=0) gameOver(false);
-            else setTimeout(spawnPlayer, 800);
+            else respawnTimer = setTimeout(()=>{ if (running) spawnPlayer(); }, 800);
           } else {
             explode(b.x,b.y,'#f44');
           }
@@ -910,7 +918,7 @@
           p2lives--; p2livesEl.textContent=p2lives;
           if (p2lives<=0 && lives<=0) gameOver(false);
           else setTimeout(()=>{
-            if (!dualMode) return;
+            if (!dualMode || !running) return;
             for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=22;c<=23;c++) if (map[r]&&map[r][c]===1) map[r][c]=0;
             player2 = makeTank(true);
             player2.x=22*TILE; player2.y=(ROWS-3)*TILE; player2.color='#4488ff';
@@ -1257,6 +1265,7 @@
   }
 
   function startGame(mode){
+    clearTimeout(respawnTimer);
     dualMode = (mode==='dual');
     endlessMode = (mode==='endless');
     document.body.classList.add('running');
@@ -1296,6 +1305,7 @@
   }
 
   function backToMenu(){
+    clearTimeout(respawnTimer);
     running = false; bgmStop();
     document.body.classList.remove('running');
     ovTitle.textContent = '坦克大战';
@@ -1320,6 +1330,7 @@
   });
 
   function reloadLevel(){
+    clearTimeout(respawnTimer);
     running = true;
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0;
     spawnTimer = endlessMode ? 120 : 0; pickupTimer = 0;
