@@ -471,12 +471,12 @@
     return t;
   }
 
-  function spawnPlayer() {
+  function spawnPlayer(fullHP) {
     // 清除重生位置的砖块
     for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=3;c<=4;c++) if (r>=0&&c>=0&&r<ROWS&&c<COLS&&map[r][c]===1) map[r][c]=0;
     player = makeTank(true);
     player.x = 3 * TILE; player.y = (ROWS-3) * TILE;
-    playerHP = playerMaxHP;
+    if (fullHP !== false) playerHP = playerMaxHP;
     updateHPDisplay();
     if (dualMode){
       for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=22;c<=23;c++) if (r>=0&&c>=0&&r<ROWS&&c<COLS&&map[r][c]===1) map[r][c]=0;
@@ -1030,11 +1030,11 @@
     spawnTimer = endlessMode ? 120 : 0; waveSpawned = false;
     if (level % 5 === 0){
       generateBossArena();
-      spawnPlayer(); spawnAlly();
+      spawnPlayer(false); spawnAlly();
       spawnBoss();
     } else {
       emptyMap();
-      spawnPlayer();
+      spawnPlayer(false);
       const count = Math.min(1 + (level-1), 4);
       for (let i=0;i<count;i++) spawnEnemy();
     }
