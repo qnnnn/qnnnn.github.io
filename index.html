@@ -538,9 +538,9 @@
       ally = makeTank(true);
       ally.x = x; ally.y = -TILE;
       ally.color = '#44ddff';
-      ally.speed = 0.9;
-      ally.hp = 3;
-      ally.maxHp = 3;
+      ally.speed = 0.7;
+      ally.hp = 2;
+      ally.maxHp = 2;
       ally.isAirdrop = true;
       ally.dropIn = 60;
       ally.targetY = y;
@@ -870,9 +870,10 @@
         ally.aiTimer = 15 + ((Math.random()*20)|0);
       }
       moveTank(ally);
-      if (target && ally.cooldown <= 0 && Math.random() < 0.7) {
+      if (target && ally.cooldown <= 0 && Math.random() < (ally.isAirdrop ? 0.4 : 0.7)) {
         ally.dir = dirTowards(ally, target);
         shoot(ally);
+        if (ally.isAirdrop) ally.cooldown = 60;
       }
     }
     // 空投降落动画
