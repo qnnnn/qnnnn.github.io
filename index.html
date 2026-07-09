@@ -437,8 +437,8 @@
     const bLevel = Math.floor(level / 5);
     boss = {
       x: 10*TILE, y: 4*TILE, w: TILE*2, h: TILE*2,
-      dir: 'down', speed: 0.55 + bLevel * 0.04,
-      hp: 10 + bLevel * 4, maxHp: 10 + bLevel * 4,
+      dir: 'down', speed: 0.5 + bLevel * 0.03,
+      hp: 8 + bLevel * 3, maxHp: 8 + bLevel * 3,
       cooldown: 0, alive: true,
       color: bLevel === 1 ? '#aa44cc' : bLevel === 2 ? '#dd3333' : '#ffaa00',
       moveTimer: 0, moveDir: null, enraged: false
@@ -758,7 +758,7 @@
       boss.moveTimer--;
       if (boss.cooldown > 0) boss.cooldown--;
       const enraged = boss.hp <= boss.maxHp / 2;
-      const spd = enraged ? boss.speed * 1.3 : boss.speed;
+      const spd = enraged ? boss.speed * 1.15 : boss.speed;
       if (boss.moveTimer <= 0 || !boss.moveDir) {
         const r = Math.random();
         if (r < 0.5) boss.moveDir = dirTowards(boss, player);
@@ -771,7 +771,7 @@
       const nx = boss.x + d.x * spd, ny = boss.y + d.y * spd;
       if (canMove(boss, nx, ny)) { boss.x = nx; boss.y = ny; }
       if (boss.cooldown <= 0) {
-        const bulletCount = 2 + Math.floor(level / 10);
+        const bulletCount = 1 + Math.floor(level / 10);
         const perp = d.x ? {x:0,y:-1} : {x:1,y:0};
         const cx = boss.x + boss.w/2, cy = boss.y + boss.h/2;
         for (let i=0;i<bulletCount;i++) {
@@ -783,7 +783,7 @@
             from: 'e', w: 6, h: 6
           });
         }
-        boss.cooldown = enraged ? 20 : 40;
+        boss.cooldown = enraged ? 30 : 50;
         sfx.shoot();
       }
     }
