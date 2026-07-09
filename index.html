@@ -96,11 +96,11 @@
     display: none;
     position: fixed;
     bottom: 0; left: 0; right: 0;
-    height: 160px;
+    height: 180px;
     z-index: 10;
     justify-content: space-between;
     align-items: center;
-    padding: 0 24px;
+    padding: 0 12px;
     background: rgba(0,0,0,0.55);
     touch-action: none;
     user-select: none;
@@ -112,15 +112,15 @@
   .is-touch #panel .box:nth-child(3) { display: none; }
   .is-touch #overlay p br:first-child { display: none; }
   .is-touch #overlay p .pc-only { display: none; }
-  .dpad { position: relative; width: 140px; height: 140px; flex-shrink: 0; }
+  .dpad { position: relative; width: 160px; height: 160px; flex-shrink: 0; }
   .dpad-btn {
     position: absolute;
-    width: 44px; height: 44px;
-    border-radius: 8px;
+    width: 56px; height: 56px;
+    border-radius: 10px;
     background: rgba(255,255,255,0.12);
     border: 2px solid rgba(255,255,255,0.25);
     display: flex; align-items: center; justify-content: center;
-    font-size: 22px; color: rgba(255,255,255,0.7);
+    font-size: 24px; color: rgba(255,255,255,0.7);
     touch-action: none;
   }
   .dpad-btn.active { background: rgba(255,255,255,0.35); border-color: rgba(255,255,255,0.6); }
@@ -128,24 +128,24 @@
   #btnDown { bottom: 4px; left: 50%; transform: translateX(-50%); }
   #btnLeft { left: 4px; top: 50%; transform: translateY(-50%); }
   #btnRight { right: 4px; top: 50%; transform: translateY(-50%); }
-  .fire-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .fire-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
   .fire-btn {
-    width: 76px; height: 76px;
+    width: 90px; height: 90px;
     border-radius: 50%;
     background: rgba(255,60,60,0.25);
     border: 3px solid rgba(255,60,60,0.45);
     display: flex; align-items: center; justify-content: center;
-    font-size: 13px; color: rgba(255,255,255,0.7);
+    font-size: 15px; color: rgba(255,255,255,0.7);
     touch-action: none;
   }
   .fire-btn.active { background: rgba(255,60,60,0.5); border-color: rgba(255,60,60,0.8); }
   .tc-pause {
-    width: 44px; height: 44px;
-    border-radius: 8px;
+    width: 52px; height: 52px;
+    border-radius: 10px;
     background: rgba(255,255,255,0.1);
     border: 2px solid rgba(255,255,255,0.2);
     display: flex; align-items: center; justify-content: center;
-    font-size: 18px; color: rgba(255,255,255,0.6);
+    font-size: 20px; color: rgba(255,255,255,0.6);
     touch-action: none;
   }
 </style>
@@ -296,14 +296,22 @@
     [523,0.2],[659,0.2],[784,0.2],[1047,0.4],
     [784,0.2],[659,0.2],[587,0.4],[523,0.4],
   ];
+  const BOSS_MELODY = [
+    [262,0.3],[311,0.3],[349,0.3],[392,0.3],
+    [349,0.2],[311,0.2],[262,0.4],[349,0.4],
+    [262,0.3],[311,0.3],[349,0.3],[392,0.3],
+    [440,0.2],[392,0.2],[349,0.4],[262,0.4],
+  ];
   function bgmPlay(){
     if (!running || muted || paused) return;
     bgmIdx = 0; bgmNext();
   }
   function bgmNext(){
     if (!running || muted || paused) return bgmStop();
-    const note = BGM_MELODY[bgmIdx % BGM_MELODY.length];
-    mbeep(note[0], note[1]*0.8, 'square', 0.03);
+    const useBoss = level % 5 === 0 && boss && boss.alive;
+    const melody = useBoss ? BOSS_MELODY : BGM_MELODY;
+    const note = melody[bgmIdx % melody.length];
+    mbeep(note[0], note[1]*0.8, useBoss ? 'sawtooth' : 'square', 0.03);
     bgmIdx++;
     bgmTimer = setTimeout(bgmNext, note[1]*1000 * 0.9);
   }
@@ -1381,7 +1389,7 @@
     g.style.transform = 'none';
     const w = g.offsetWidth, h = g.offsetHeight;
     if (w === 0 || h === 0) return;
-    const tcH = document.body.classList.contains('is-touch') ? 160 : 0;
+    const tcH = document.body.classList.contains('is-touch') ? 180 : 0;
     const availW = window.innerWidth - 32;
     const availH = window.innerHeight - tcH - 32;
     const s = Math.min(availW / w, availH / h, 1.5);
