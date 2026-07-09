@@ -262,7 +262,7 @@
   let permHP=0, permLives=0, permSpeed=0;
   let playerHP=5, playerMaxHP=5;
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, waveSpawned=false;
-  let keys = {}, respawnTimer = null;
+  let keys = {}, respawnTimer = null, airdropTimer = 0;
 
   // ===== 音效 (Web Audio 8-bit 风格) =====
   let actx = null;
@@ -521,6 +521,31 @@
     ally.speed = 0.9;
     ally.hp = 2;
     ally.maxHp = 2;
+    ally.isAirdrop = false;
+  }
+
+  function spawnAirdrop(){
+    if (ally && ally.alive) return;
+    for (let i=0;i<30;i++){
+      const c = 4 + ((Math.random()*(COLS-8))|0);
+      const r = 4 + ((Math.random()*(ROWS-10))|0);
+      if (map[r][c]!==0) continue;
+      const x=c*TILE, y=r*TILE;
+      if (player.alive && rectsOverlap({x,y,w:TILE,h:TILE},player)) continue;
+      let blocked=false;
+      for (const e of enemies) if (rectsOverlap({x,y,w:TILE,h:TILE},e)){ blocked=true; break; }
+      if (blocked) continue;
+      ally = makeTank(true);
+      ally.x = x; ally.y = -TILE;
+      ally.color = '#44ddff';
+      ally.speed = 0.9;
+      ally.hp = 3;
+      ally.maxHp = 3;
+      ally.isAirdrop = true;
+      ally.dropIn = 60;
+      ally.targetY = y;
+      return;
+    }
   }
 
   function spawnPickup(){
@@ -825,8 +850,8 @@
       }
     }
 
-    // AI 队友
-    if (ally && ally.alive && freezeTimer <= 0) {
+    // AI 队友（空投降落中不行动）
+    if (ally && ally.alive && freezeTimer <= 0 && !ally.dropIn) {
       if (ally.cooldown > 0) ally.cooldown--;
       ally.aiTimer--;
       let target = null, minD2 = Infinity;
@@ -850,8 +875,21 @@
         shoot(ally);
       }
     }
-    // 队友复活
-    if (ally && !ally.alive) {
+    // 空投降落动画
+    if (ally && ally.dropIn && ally.dropIn > 0) {
+      ally.dropIn--;
+      ally.y += (ally.targetY - ally.y + TILE) / 30;
+      if (ally.dropIn <= 0) {
+        ally.y = ally.targetY;
+        explode(ally.x+8, ally.y-4, '#fff');
+        sfx.boom();
+      }
+    }
+    // 队友复活（Boss关队友才复活，空投不复活）
+    if (ally && !ally.alive && ally.isAirdrop) {
+      ally = null;
+    }
+    if (ally && !ally.alive && !ally.isAirdrop) {
       if (allyRespawnTimer > 0) allyRespawnTimer--;
       else if (allyRespawnTimer <= 0) {
         ally.alive = true;
@@ -990,6 +1028,15 @@
     }
     if (pickupTimer > 0) pickupTimer--;
 
+    // 空投AI队友（非Boss关，30秒一次概率触发）
+    if (level % 5 !== 0){
+      if (airdropTimer <= 0 && (!ally || !ally.alive)){
+        if (Math.random() < 0.25){ spawnAirdrop(); }
+        airdropTimer = 1200 + ((Math.random()*600)|0);
+      }
+      if (airdropTimer > 0) airdropTimer--;
+    }
+
     // 拾取道具
     if (player.alive){
       for (const p of pickups){
@@ -1064,7 +1111,7 @@
   function nextLevel(){
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0;
     shieldTimer = 0; bulletUpgraded = false; doubleShot = false; baseShieldTimer = 0; freezeTimer = 0; apBulletTimer = 0;
-    spawnTimer = endlessMode ? 120 : 0; waveSpawned = false;
+    spawnTimer = endlessMode ? 120 : 0; waveSpawned = false; airdropTimer = 0;
     if (level % 5 === 0){
       generateBossArena();
       spawnPlayer(false); spawnAlly();
@@ -1252,7 +1299,20 @@
       }
     }
     if (dualMode && player2 && player2.alive) drawTank(player2);
-    if (ally && ally.alive) drawTank(ally);
+    if (ally && ally.alive) {
+      if (ally.dropIn && ally.dropIn > 0) {
+        const ax = ally.x + 8, ay = ally.y;
+        ctx.fillStyle = '#f8f8f8';
+        ctx.beginPath();
+        ctx.moveTo(ax, ay-16); ctx.lineTo(ax-10, ay-4); ctx.lineTo(ax+10, ay-4); ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(ax, ay-16); ctx.lineTo(ax, ay); ctx.stroke();
+        drawTank(ally);
+      } else {
+        drawTank(ally);
+      }
+    }
     for (const e of enemies) if (e.alive) drawTank(e);
     if (boss && boss.alive) drawBoss(boss);
     // 冰冻视觉效果
@@ -1301,7 +1361,7 @@
     bullets=[]; particles=[]; enemies=[]; spawnTimer=0; pickups=[]; boss=null; ally=null; allyRespawnTimer=0;
     shieldTimer=0; bulletUpgraded=false; doubleShot=false; baseShieldTimer=0; freezeTimer=0; pickupTimer=0;
     permHP=0; permLives=0; permSpeed=0; upgradePending=false;
-    playerHP=5; playerMaxHP=5; waveSpawned=false;
+    playerHP=5; playerMaxHP=5; waveSpawned=false; airdropTimer=0;
     document.getElementById('levelLabel').textContent = endlessMode ? '波次' : '关卡';
     emptyMap(); spawnPlayer();
     spawnTimer = endlessMode ? 120 : 0;
@@ -1360,7 +1420,7 @@
     clearTimeout(respawnTimer); shakeTimer = 0;
     running = true;
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0;
-    spawnTimer = endlessMode ? 120 : 0; pickupTimer = 0;
+    spawnTimer = endlessMode ? 120 : 0; pickupTimer = 0; airdropTimer = 0;
     if (level % 5 === 0){
       generateBossArena();
       spawnPlayer(); spawnAlly();
