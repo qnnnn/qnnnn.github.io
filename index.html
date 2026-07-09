@@ -158,6 +158,7 @@
         <div class="row"><span>得分</span><span class="val" id="score">0</span></div>
         <div class="row"><span id="levelLabel">关卡</span><span class="val" id="level">1</span></div>
         <div class="row"><span>生命</span><span class="val" id="lives">3</span></div>
+        <div class="row"><span>血量</span><span class="val" id="hpDisplay">❤❤❤❤❤</span></div>
         <div class="row"><span>敌军</span><span class="val" id="enemies">0</span></div>
         <div class="row"><span>护盾</span><span class="val" id="bufShield">-</span></div>
         <div class="row"><span>子弹</span><span class="val" id="bufBullet">普通</span></div>
@@ -233,6 +234,7 @@
   const bufBaseEl = document.getElementById('bufBase');
   const bufFreezeEl = document.getElementById('bufFreeze');
   const bufApEl = document.getElementById('bufAp');
+  const hpDisplay = document.getElementById('hpDisplay');
   const p2livesEl = document.getElementById('p2lives');
   const p2lifeRow = document.getElementById('p2lifeRow');
   const btn1p = document.getElementById('btn1p');
@@ -251,7 +253,8 @@
   let player, player2, enemies, bullets, base, particles, pickups, boss, ally;
   let score=0, level=1, lives=3, p2lives=3, running=false, paused=false, spawnTimer=0, pickupTimer=0;
   let shieldTimer=0, bulletUpgraded=false, doubleShot=false, baseShieldTimer=0, freezeTimer=0, allyRespawnTimer=0, apBulletTimer=0, shakeTimer=0, shakeIntensity=0;
-  let permHP=0, permLives=0, permSpeed=0, playerExtraHP=0;
+  let permHP=0, permLives=0, permSpeed=0;
+  let playerHP=5, playerMaxHP=5;
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false;
   let keys = {};
 
@@ -472,7 +475,8 @@
     for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=3;c<=4;c++) if (r>=0&&c>=0&&r<ROWS&&c<COLS&&map[r][c]===1) map[r][c]=0;
     player = makeTank(true);
     player.x = 3 * TILE; player.y = (ROWS-3) * TILE;
-    playerExtraHP = permHP;
+    playerHP = playerMaxHP;
+    updateHPDisplay();
     if (dualMode){
       for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=22;c<=23;c++) if (r>=0&&c>=0&&r<ROWS&&c<COLS&&map[r][c]===1) map[r][c]=0;
       player2 = makeTank(true);
@@ -503,6 +507,7 @@
     if (apBulletTimer <= 0) available.push('apbullet');
     available.push('repair');
     available.push('bomb');
+    available.push('medkit');
     if (available.length === 0) return;
     for (let i=0;i<50;i++){
       const r = 4 + ((Math.random()*(ROWS-8))|0);
@@ -523,7 +528,7 @@
   function spawnDrop(e){
     if (Math.random() >= 0.3) return;
     if (pickups.length >= 3) return;
-    const types = ['shield','bullet','doubleshot','baseshield','freeze','bomb','apbullet','repair'];
+    const types = ['shield','bullet','doubleshot','baseshield','freeze','bomb','apbullet','repair','medkit'];
     const available = types.filter(t => {
       if (t==='shield' && shieldTimer>0) return false;
       if (t==='bullet' && bulletUpgraded) return false;
@@ -640,6 +645,11 @@
   }
   function shake(t,i){ shakeTimer=Math.max(shakeTimer,t); shakeIntensity=Math.max(shakeIntensity,i); }
 
+  function updateHPDisplay(){
+    const hearts = '❤'.repeat(Math.max(0, playerHP)) + '🖤'.repeat(Math.max(0, playerMaxHP - playerHP));
+    hpDisplay.textContent = hearts || '死';
+  }
+
   function update() {
     if (paused || !running) return;
 
@@ -699,8 +709,11 @@
         let hit = false;
         if (player.alive && rectsOverlap(e, player)){
           if (!cheatInvincible && shieldTimer <= 0){
-            if (playerExtraHP > 0) playerExtraHP--;
-            else { player.alive = false; lives--; livesEl.textContent=lives; }
+            playerHP = Math.max(playerHP - 2, 0);
+            if (playerHP <= 0){
+              explode(player.x+player.w/2,player.y+player.h/2,player.color);
+              player.alive = false; lives--; livesEl.textContent=lives;
+            }
           }
           hit = true;
         }
@@ -860,14 +873,17 @@
             b.dead=true; explode(b.x,b.y, cheatInvincible?'#ff0':'#4af');
             continue;
           }
-          b.dead=true; explode(player.x+player.w/2,player.y+player.h/2,player.color); sfx.hit();
-          if (playerExtraHP > 0){ playerExtraHP--; }
-          else {
+          b.dead=true; sfx.hit();
+          playerHP--;
+          if (playerHP <= 0){
+            explode(player.x+player.w/2,player.y+player.h/2,player.color);
             player.alive=false;
             lives--; livesEl.textContent=lives;
             if (dualMode){ if (lives<=0 && p2lives<=0) gameOver(false); }
             else if (lives<=0) gameOver(false);
             else setTimeout(spawnPlayer, 800);
+          } else {
+            explode(b.x,b.y,'#f44');
           }
         }
         if (dualMode && player2 && player2.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},player2)){
@@ -960,6 +976,10 @@
             if (r>=0&&c>=0&&r<ROWS&&c<COLS && map[r][c]===0 && !(r===br && c===bc)) map[r][c]=1;
           }
         }
+        if (p.type === 'medkit'){
+          playerHP = Math.min(playerHP + 2, playerMaxHP);
+          explode(p.x,p.y,'#44ff44');
+        }
         p.dead = true;
       }
     }
@@ -982,6 +1002,7 @@
     }
     bufFreezeEl.textContent = freezeTimer > 0 ? (Math.ceil(freezeTimer/60)+'秒') : '-';
     bufApEl.textContent = apBulletTimer > 0 ? (Math.ceil(apBulletTimer/60)+'秒') : '-';
+    updateHPDisplay();
 
     // 粒子
     for (const p of particles){ p.x+=p.vx; p.y+=p.vy; p.life--; }
@@ -1126,6 +1147,11 @@
       fillRect(x+3,y+3,s-6,s-6,'#88ff88');
       fillRect(x+5,y+4,6,8,'#44dd44');
       fillRect(x+4,y+6,8,4,'#44dd44');
+    } else if (p.type==='medkit'){
+      fillRect(x+1,y+1,s-2,s-2,'#fff');
+      fillRect(x+3,y+3,s-6,s-6,'#ff4444');
+      fillRect(x+5,y+4,6,8,'#fff');
+      fillRect(x+4,y+6,8,4,'#fff');
     }
   }
 
@@ -1220,7 +1246,8 @@
     score=0; level=1; lives=3; p2lives=3; running=true; paused=false;
     bullets=[]; particles=[]; enemies=[]; spawnTimer=0; pickups=[]; boss=null; ally=null; allyRespawnTimer=0;
     shieldTimer=0; bulletUpgraded=false; doubleShot=false; baseShieldTimer=0; freezeTimer=0; pickupTimer=0;
-    permHP=0; permLives=0; permSpeed=0; playerExtraHP=0; upgradePending=false;
+    permHP=0; permLives=0; permSpeed=0; upgradePending=false;
+    playerHP=5; playerMaxHP=5;
     document.getElementById('levelLabel').textContent = endlessMode ? '波次' : '关卡';
     emptyMap(); spawnPlayer();
     spawnTimer = endlessMode ? 120 : 0;
@@ -1274,10 +1301,13 @@
     const overlay = document.getElementById('upgradeOverlay');
     const opts = document.getElementById('upgradeOptions');
     const upgrades = [
-      {id:'hp', label:'❤ 加一血', desc:'坦克多承受一次攻击', fn:()=>{ permHP++; }},
+      {id:'hp', label:'❤ 加一血', desc:'最大血量 +1（当前 '+playerHP+'/'+playerMaxHP+'）', fn:()=>{ permHP++; playerMaxHP++; playerHP++; }},
       {id:'life', label:'✚ 加一条命', desc:'额外一次复活机会', fn:()=>{ permLives++; lives++; livesEl.textContent=lives; }},
       {id:'speed', label:'⚡ 加速', desc:'移动速度 +15%', fn:()=>{ permSpeed++; }},
     ];
+    if (playerHP < playerMaxHP) {
+      upgrades.push({id:'heal', label:'❤️‍🩹 回血', desc:'血量回满（'+playerHP+'→'+playerMaxHP+'）', fn:()=>{ playerHP = playerMaxHP; }});
+    }
     opts.innerHTML = '';
     for (const u of upgrades){
       const b = document.createElement('button');
