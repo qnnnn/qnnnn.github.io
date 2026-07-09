@@ -108,7 +108,6 @@
   }
   .is-touch #touch-controls { display: flex; }
   .is-touch #panel { width: 130px; font-size: 12px; }
-  .is-touch #panel .box:not(:first-child):not(#muteBox) { display: none; }
   .dpad { position: relative; width: 140px; height: 140px; flex-shrink: 0; }
   .dpad-btn {
     position: absolute;
@@ -660,28 +659,40 @@
       if (keys['k']) shoot(player2);
     }
 
-    // 敌人AI
+    // 敌人AI（随关卡提升智能）
     for (const e of enemies) {
       if (!e.alive) continue;
       if (freezeTimer > 0) continue;
       e.aiTimer--;
       if (e.aiTimer<=0 || !e.aiDir) {
+        const dirToBase = dirTowards(e, {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true});
         if (e.type === 'suicide') {
-          // 自爆兵：冲向最近的玩家或基地
           const target = (dualMode && player2 && player2.alive && Math.random()<0.5) ? player2 : player;
-          e.aiDir = dirTowards(e, target.alive ? target : player);
+          e.aiDir = target && target.alive ? dirTowards(e, target) : dirToBase;
         } else if (e.type === 'scout') {
-          // 侦察兵：横向侧移绕后
-          e.aiDir = Math.random()<0.6 ? dirSideways(e, player) : DIR_LIST[(Math.random()*4)|0];
+          e.aiDir = Math.random()<0.7 ? dirSideways(e, player) : dirTowards(e, player);
         } else {
-          e.aiDir = Math.random()<0.4 ? dirTowards(e, player) : DIR_LIST[(Math.random()*4)|0];
+          const seekPlayer = Math.random() < 0.4 + Math.min(level-1, 8) * 0.05;
+          if (seekPlayer) e.aiDir = dirTowards(e, player);
+          else if (Math.random()<0.35) e.aiDir = dirToBase;
+          else e.aiDir = DIR_LIST[(Math.random()*4)|0];
         }
         e.dir = e.aiDir;
-        e.aiTimer = 20 + ((Math.random()*40)|0);
+        e.aiTimer = 15 + ((Math.random()*20)|0);
       }
       const before = {x:e.x,y:e.y};
       moveTank(e);
-      if (before.x===e.x && before.y===e.y) { e.aiTimer=0; }
+      if (before.x===e.x && before.y===e.y) {
+        const perp = e.dir==='up'||e.dir==='down' ? ['left','right'] : ['up','down'];
+        e.dir = perp[(Math.random()*2)|0];
+        e.aiDir = e.dir;
+        moveTank(e);
+        if (before.x===e.x && before.y===e.y) {
+          e.dir = DIR_LIST[(Math.random()*4)|0];
+          e.aiDir = e.dir;
+          e.aiTimer = 10 + ((Math.random()*15)|0);
+        }
+      }
       // 自爆兵：接触玩家或基地即爆炸
       if (e.type === 'suicide' && e.alive) {
         let hit = false;
@@ -715,7 +726,13 @@
       if (e.cooldown>0) e.cooldown--;
       // 侦察兵和自爆兵不开火
       if (e.type !== 'scout' && e.type !== 'suicide') {
-        const shootChance = 0.004 + Math.min(level-1, 6) * 0.002;
+        const aligned = player && player.alive && (
+          (e.dir === 'up' || e.dir === 'down')
+            ? Math.abs(e.x - player.x) < 12
+            : Math.abs(e.y - player.y) < 12
+        );
+        const baseChance = 0.004 + Math.min(level-1, 6) * 0.002;
+        const shootChance = aligned ? baseChance * 3 : baseChance;
         if (Math.random() < shootChance) shoot(e);
       }
     }
@@ -1333,8 +1350,8 @@
     // 阻止页面滚动/缩放
     document.addEventListener('touchmove', e=>{ if (e.target.closest('#game,#touch-controls')) e.preventDefault(); }, {passive:false});
     const map = {
-      btnUp: 'ArrowUp', btnDown: 'ArrowDown',
-      btnLeft: 'ArrowLeft', btnRight: 'ArrowRight',
+      btnUp: 'w', btnDown: 's',
+      btnLeft: 'a', btnRight: 'd',
       btnFire: 'j',
     };
     for (const [id, key] of Object.entries(map)){
