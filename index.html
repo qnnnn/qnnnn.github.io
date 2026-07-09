@@ -198,6 +198,7 @@
       <button class="btn" id="btn1p">单人模式</button>
       <button class="btn" id="btn2p">双人模式</button>
       <button class="btn" id="btnEndless">生存模式</button>
+      <button class="btn" id="btnResume" style="display:none;background:#44aaff;color:#fff;">继续游戏</button>
       <button class="btn" id="btnRetry" style="display:none;background:#ff6c6c;color:#fff;">重新本关</button>
     </div>
   </div>
@@ -1269,6 +1270,7 @@
     scoreEl.textContent=score; levelEl.textContent=level; livesEl.textContent=lives;
     p2livesEl.textContent=p2lives;
     p2lifeRow.style.display = dualMode ? 'flex' : 'none';
+    document.getElementById('btnResume').style.display = 'none';
     overlay.classList.add('hidden');
     bgmPlay();
   }
@@ -1286,6 +1288,7 @@
     if (dualMode) extra = '<br>P1生命：'+lives+' &nbsp; P2生命：'+p2lives;
     ovText.innerHTML = '最终得分：<b style="color:#ffd24d">'+score+'</b><br>到达'+modeLabel+'：'+level+extra;
     btnRetry.style.display = '';
+    document.getElementById('btnResume').style.display = 'none';
     overlay.classList.remove('hidden');
   }
 
@@ -1295,8 +1298,18 @@
     ovTitle.textContent = '坦克大战';
     ovText.innerHTML = '<span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！';
     btnRetry.style.display = 'none';
+    document.getElementById('btnResume').style.display = '';
     overlay.classList.remove('hidden');
   }
+
+  document.getElementById('btnResume').addEventListener('click', ()=>{
+    document.getElementById('btnResume').style.display = 'none';
+    btnRetry.style.display = 'none';
+    overlay.classList.add('hidden');
+    running = true;
+    document.body.classList.add('running');
+    bgmPlay();
+  });
 
   btnRetry.addEventListener('click', ()=>{
     btnRetry.style.display = 'none';
