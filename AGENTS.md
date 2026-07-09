@@ -1,67 +1,39 @@
 # AGENTS.md — Battle City (坦克大战)
 
-Single-file HTML5 Canvas game. No build, no dependencies.
+Single-file HTML5 Canvas game. No build, no dependencies. Just open `index.html` in a browser.
 
-**File**: `index.html` (deployed on GitHub Pages at `qnnnn.github.io`)
+## Dev commands
 
-## Controls
+| Command | What |
+|---------|------|
+| `npx playwright test` | Run all 17 tests headless |
+| `npx playwright test --headed` | Run with browser visible |
+| `npx playwright test -g "test name"` | Run single test by name |
 
-| P1 | P2 | Action |
-|----|----|--------|
-| W A S D | ↑ ↓ ← → | Move |
-| J / Space | K | Shoot |
-| P | | Pause |
-| R | | Restart level |
-| O | | Toggle invincibility |
-| I | | Kill all enemies |
-| L | | Skip level |
+`npm test` is a dummy — use `npx playwright test` instead.
 
-Mobile: touch d-pad + fire button auto-detected.
+## Testing quirks
 
-## Game Modes
+- Tests load the game via `file://` protocol — no server needed
+- Config: `playwright.config.mjs` (headless, 800×800 viewport, 30s timeout)
+- Test file: `battle-city.spec.mjs` (ESM `.mjs` despite `"type": "commonjs"` in `package.json`)
+- `node_modules/` and `test-results/` are gitignored
 
-- **Single / Dual** — classic, score gate `level×1500`
-- **Endless** — infinite waves, clear all enemies to advance, difficulty keeps scaling
+## Dev cheat keys (for testing without driving game UI)
 
-## Power-ups
+| Key | Action |
+|-----|--------|
+| O | Toggle invincibility |
+| I | Kill all enemies |
+| L | Skip level |
+| R | Restart level |
+| P | Pause/unpause |
+| M | Menu (shows Resume button) |
 
-| Type | Effect |
-|------|--------|
-| shield | 5s invincibility (blue aura) |
-| bullet | bigger/faster bullets |
-| doubleshot | fires 2 parallel |
-| baseshield | 10s base immunity (green border) |
-| freeze | 3s freeze all enemies |
-| bomb | kill all enemies on screen |
-| apbullet | 5s bullets pierce steel walls |
-| repair | restore 2 base HP + repair surrounding brick walls |
-| medkit | restore 2 player HP |
+## Game structure
 
-Drop chance on enemy kill: 30%. Max 3 on screen.
+All logic, rendering, audio, and UI are inside `<script>` in `index.html`. Key DOM elements tests rely on: `#overlay`, `#btn1p`, `#btn2p`, `#btnEndless`, `#btnResume`, `#screen` (canvas), `#panel`, `#lives`, `#level`, `#enemies`, `#hpDisplay`, `#muteBox`.
 
-## HP System
+## Deployment
 
-Each life has `playerHP` / `playerMaxHP` (default 5). Bullets -1 HP, suicide -2 HP. At 0 HP → lose a life, respawn full HP.
-
-**medkit** pickup restores 2 HP. Level-clear "回血" option available when HP < max.
-
-## Permanent Upgrades (level clear)
-
-❤ +1 max HP | ✚ +1 life | ⚡ +15% speed | ❤️‍🩹 heal to full (if damaged)
-
-## Enemy Types
-
-Normal (1HP), Scout (fast/lateral/no shoot), Armored (2HP), Suicide (rushes/explodes on contact, 2 base dmg), Rapid (2HP/double shot), Elite (3HP/rapid).
-
-## Boss (every 5th level)
-
-2×2 tile boss with HP bar. HP: `10+floor(L/5)×4`. Enrages at ≤50% HP. Spawns AI ally (cyan, 3HP).
-
-## Terrain
-
-0=empty 1=brick 2=steel 3=base 4=grass 5=water 6=ice
-Random grass≥L1, water≥L3, ice≥L5. 6 preset map layouts cycle by level.
-
-## Audio
-
-8-bit via Web Audio (`mbeep()` wrapper respects `muted` flag). BGM: looping square-wave melody.
+GitHub Pages at `qnnnn.github.io`. Push to `main` to deploy.

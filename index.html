@@ -262,7 +262,7 @@
   let permHP=0, permLives=0, permSpeed=0;
   let playerHP=5, playerMaxHP=5;
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, waveSpawned=false;
-  let keys = {}, respawnTimer = null, airdropTimer = 0;
+  let keys = {}, respawnTimer = null, airdropTimer = 0, lastTime = 0;
 
   // ===== 音效 (Web Audio 8-bit 风格) =====
   let actx = null;
@@ -661,9 +661,9 @@
     return true;
   }
 
-  function moveTank(t) {
+  function moveTank(t, dt) {
     const d = DIR[t.dir];
-    const nx = t.x + d.x*t.speed, ny = t.y + d.y*t.speed;
+    const nx = t.x + d.x*t.speed*dt, ny = t.y + d.y*t.speed*dt;
     if (canMove(t, nx, ny)) { t.x = nx; t.y = ny; }
   }
 
@@ -704,23 +704,23 @@
     hpDisplay.textContent = hearts || '死';
   }
 
-  function update() {
+  function update(dt) {
     if (paused || !running) return;
 
     if (player.alive) {
-      if (keys['w']) { player.dir='up'; moveTank(player); }
-      else if (keys['s']) { player.dir='down'; moveTank(player); }
-      else if (keys['a']) { player.dir='left'; moveTank(player); }
-      else if (keys['d']) { player.dir='right'; moveTank(player); }
-      if (player.cooldown>0) player.cooldown--;
+      if (keys['w']) { player.dir='up'; moveTank(player, dt); }
+      else if (keys['s']) { player.dir='down'; moveTank(player, dt); }
+      else if (keys['a']) { player.dir='left'; moveTank(player, dt); }
+      else if (keys['d']) { player.dir='right'; moveTank(player, dt); }
+      if (player.cooldown>0) player.cooldown-=dt;
       if (keys['j']||keys[' ']) shoot(player);
     }
     if (dualMode && player2 && player2.alive) {
-      if (keys['ArrowUp']) { player2.dir='up'; moveTank(player2); }
-      else if (keys['ArrowDown']) { player2.dir='down'; moveTank(player2); }
-      else if (keys['ArrowLeft']) { player2.dir='left'; moveTank(player2); }
-      else if (keys['ArrowRight']) { player2.dir='right'; moveTank(player2); }
-      if (player2.cooldown>0) player2.cooldown--;
+      if (keys['ArrowUp']) { player2.dir='up'; moveTank(player2, dt); }
+      else if (keys['ArrowDown']) { player2.dir='down'; moveTank(player2, dt); }
+      else if (keys['ArrowLeft']) { player2.dir='left'; moveTank(player2, dt); }
+      else if (keys['ArrowRight']) { player2.dir='right'; moveTank(player2, dt); }
+      if (player2.cooldown>0) player2.cooldown-=dt;
       if (keys['k']) shoot(player2);
     }
 
@@ -728,7 +728,7 @@
     for (const e of enemies) {
       if (!e.alive) continue;
       if (freezeTimer > 0) continue;
-      e.aiTimer--;
+      e.aiTimer-=dt;
       if (e.aiTimer<=0 || !e.aiDir) {
         const dirToBase = dirTowards(e, {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true});
         if (e.type === 'suicide') {
@@ -746,12 +746,12 @@
         e.aiTimer = 15 + ((Math.random()*20)|0);
       }
       const before = {x:e.x,y:e.y};
-      moveTank(e);
+      moveTank(e, dt);
       if (before.x===e.x && before.y===e.y) {
         const perp = e.dir==='up'||e.dir==='down' ? ['left','right'] : ['up','down'];
         e.dir = perp[(Math.random()*2)|0];
         e.aiDir = e.dir;
-        moveTank(e);
+        moveTank(e, dt);
         if (before.x===e.x && before.y===e.y) {
           e.dir = DIR_LIST[(Math.random()*4)|0];
           e.aiDir = e.dir;
@@ -801,7 +801,7 @@
           if (lives<=0 && (!dualMode || p2lives<=0)) gameOver(false);
         }
       }
-      if (e.cooldown>0) e.cooldown--;
+      if (e.cooldown>0) e.cooldown-=dt;
       // 侦察兵和自爆兵不开火
       if (e.type !== 'scout' && e.type !== 'suicide') {
         const aligned = player && player.alive && (
@@ -817,8 +817,8 @@
 
     // Boss AI
     if (boss && boss.alive && freezeTimer <= 0) {
-      boss.moveTimer--;
-      if (boss.cooldown > 0) boss.cooldown--;
+      boss.moveTimer-=dt;
+      if (boss.cooldown > 0) boss.cooldown-=dt;
       const enraged = boss.hp <= boss.maxHp / 2;
       const spd = enraged ? boss.speed * 1.15 : boss.speed;
       if (boss.moveTimer <= 0 || !boss.moveDir) {
@@ -830,7 +830,7 @@
         boss.moveTimer = 25 + ((Math.random()*35)|0);
       }
       const d = DIR[boss.moveDir];
-      const nx = boss.x + d.x * spd, ny = boss.y + d.y * spd;
+      const nx = boss.x + d.x * spd * dt, ny = boss.y + d.y * spd * dt;
       if (canMove(boss, nx, ny)) { boss.x = nx; boss.y = ny; }
       if (boss.cooldown <= 0) {
         const bulletCount = 1 + Math.floor(level / 10);
@@ -852,8 +852,8 @@
 
     // AI 队友（空投降落中不行动）
     if (ally && ally.alive && freezeTimer <= 0 && !ally.dropIn) {
-      if (ally.cooldown > 0) ally.cooldown--;
-      ally.aiTimer--;
+      if (ally.cooldown > 0) ally.cooldown-=dt;
+      ally.aiTimer-=dt;
       let target = null, minD2 = Infinity;
       for (const e of enemies) if (e.alive) {
         const dx = e.x-ally.x, dy = e.y-ally.y, d2 = dx*dx+dy*dy;
@@ -869,7 +869,7 @@
         else ally.dir = Math.random()<0.5 ? dirSideways(ally, target) : dirTowards(ally, target);
         ally.aiTimer = 15 + ((Math.random()*20)|0);
       }
-      moveTank(ally);
+      moveTank(ally, dt);
       if (target && ally.cooldown <= 0 && Math.random() < (ally.isAirdrop ? 0.4 : 0.7)) {
         ally.dir = dirTowards(ally, target);
         shoot(ally);
@@ -878,8 +878,8 @@
     }
     // 空投降落动画
     if (ally && ally.dropIn && ally.dropIn > 0) {
-      ally.dropIn--;
-      ally.y += (ally.targetY - ally.y + TILE) / 30;
+      ally.dropIn-=dt;
+      ally.y += (ally.targetY - ally.y + TILE) / 30 * dt;
       if (ally.dropIn <= 0) {
         ally.y = ally.targetY;
         explode(ally.x+8, ally.y-4, '#fff');
@@ -891,7 +891,7 @@
       ally = null;
     }
     if (ally && !ally.alive && !ally.isAirdrop) {
-      if (allyRespawnTimer > 0) allyRespawnTimer--;
+      if (allyRespawnTimer > 0) allyRespawnTimer-=dt;
       else if (allyRespawnTimer <= 0) {
         ally.alive = true;
         ally.hp = ally.maxHp;
@@ -901,7 +901,7 @@
 
     // 子弹
     for (const b of bullets) {
-      b.x += b.vx; b.y += b.vy;
+      b.x += b.vx * dt; b.y += b.vy * dt;
       if (b.x<0||b.y<0||b.x>W||b.y>H) { b.dead=true; continue; }
       const c=(b.x/TILE)|0, r=(b.y/TILE)|0;
       if (c>=0&&r>=0&&c<COLS&&r<ROWS){
@@ -1002,7 +1002,7 @@
       spawnEnemy(); spawnTimer = 180 + ((Math.random()*120)|0) - level*10;
       if (spawnTimer < 60) spawnTimer = 60;
     }
-    if (spawnTimer>0) spawnTimer--;
+    if (spawnTimer>0) spawnTimer-=dt;
 
     // 关卡过关判定
     if (!upgradePending && base.alive) {
@@ -1027,7 +1027,7 @@
       spawnPickup();
       pickupTimer = 480 + ((Math.random()*300)|0);
     }
-    if (pickupTimer > 0) pickupTimer--;
+    if (pickupTimer > 0) pickupTimer-=dt;
 
     // 空投AI队友（非Boss关，30秒一次概率触发）
     if (level % 5 !== 0){
@@ -1035,7 +1035,7 @@
         if (Math.random() < 0.25){ spawnAirdrop(); }
         airdropTimer = 1200 + ((Math.random()*600)|0);
       }
-      if (airdropTimer > 0) airdropTimer--;
+      if (airdropTimer > 0) airdropTimer-=dt;
     }
 
     // 拾取道具
@@ -1073,11 +1073,11 @@
     pickups = pickups.filter(p=>!p.dead);
 
     // 护盾/基地护盾/冰冻/穿甲弹倒计时
-    if (shieldTimer > 0) shieldTimer--;
-    if (baseShieldTimer > 0) baseShieldTimer--;
-    if (freezeTimer > 0) freezeTimer--;
-    if (apBulletTimer > 0) apBulletTimer--;
-    if (shakeTimer > 0) shakeTimer--;
+    if (shieldTimer > 0) shieldTimer-=dt;
+    if (baseShieldTimer > 0) baseShieldTimer-=dt;
+    if (freezeTimer > 0) freezeTimer-=dt;
+    if (apBulletTimer > 0) apBulletTimer-=dt;
+    if (shakeTimer > 0) shakeTimer-=dt;
     bufShieldEl.textContent = shieldTimer > 0 ? (Math.ceil(shieldTimer/60)+'秒') : '-';
     bufBulletEl.textContent = bulletUpgraded ? '升级' : '普通';
     bufDoubleEl.textContent = doubleShot ? '二连射' : '-';
@@ -1092,7 +1092,7 @@
     updateHPDisplay();
 
     // 粒子
-    for (const p of particles){ p.x+=p.vx; p.y+=p.vy; p.life--; }
+    for (const p of particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; }
     particles = particles.filter(p=>p.life>0);
   }
 
@@ -1347,13 +1347,15 @@
     if (_shook) ctx.restore();
   }
 
-  function loop(){
+  function loop(time){
+    const dt = lastTime ? Math.min((time - lastTime) / 16.667, 3) : 1;
+    lastTime = time;
     if (!map.length) { emptyMap(); spawnPlayer(); enemies=[]; bullets=[]; particles=[]; pickups=[]; }
-    update(); draw(); requestAnimationFrame(loop);
+    update(dt); draw(); requestAnimationFrame(loop);
   }
 
   function startGame(mode){
-    clearTimeout(respawnTimer); shakeTimer = 0;
+    lastTime = 0; clearTimeout(respawnTimer); shakeTimer = 0;
     dualMode = (mode==='dual');
     endlessMode = (mode==='endless');
     document.body.classList.add('running');
@@ -1381,7 +1383,7 @@
   btnEndless.addEventListener('click', ()=>startGame('endless'));
 
   function gameOver(win){
-    running=false; document.body.classList.remove('running'); bgmStop(); shakeTimer = 0;
+    lastTime = 0; running=false; document.body.classList.remove('running'); bgmStop(); shakeTimer = 0;
     ovTitle.textContent = win ? '胜利！' : '游戏结束';
     const modeLabel = endlessMode ? '波次' : '关卡';
     let extra = '';
@@ -1393,7 +1395,7 @@
   }
 
   function backToMenu(){
-    clearTimeout(respawnTimer);
+    lastTime = 0; clearTimeout(respawnTimer);
     running = false; bgmStop(); shakeTimer = 0;
     document.body.classList.remove('running');
     ovTitle.textContent = '坦克大战';
@@ -1404,6 +1406,7 @@
   }
 
   document.getElementById('btnResume').addEventListener('click', ()=>{
+    lastTime = 0;
     document.getElementById('btnResume').style.display = 'none';
     btnRetry.style.display = 'none';
     overlay.classList.add('hidden');
@@ -1418,7 +1421,7 @@
   });
 
   function reloadLevel(){
-    clearTimeout(respawnTimer); shakeTimer = 0;
+    lastTime = 0; clearTimeout(respawnTimer); shakeTimer = 0;
     running = true;
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0;
     spawnTimer = endlessMode ? 120 : 0; pickupTimer = 0; airdropTimer = 0;
