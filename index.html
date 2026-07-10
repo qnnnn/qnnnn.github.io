@@ -135,15 +135,17 @@
     user-select: none;
     -webkit-user-select: none;
   }
-  .is-touch .wrap { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+  .is-touch .wrap { display: flex; flex-direction: column; height: 100dvh; }
   .is-touch #game { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; width: 100%; padding: 0; padding-top: 36px; margin: 0; border: none; border-radius: 0; background: #000; overflow: visible; gap: 0; }
   .is-touch #screen { border: none; }
   .is-touch #touch-controls {
-    display: flex; flex: 1;
-    justify-content: space-between; align-items: flex-end;
-    padding: 0 24px 16px;
+    display: flex; flex-shrink: 0; height: 145px;
+    justify-content: flex-end; align-items: flex-end;
+    padding: 0 20px 14px;
     background: transparent; z-index: 10;
+    pointer-events: none;
   }
+  .is-touch #touch-controls > * { pointer-events: auto; }
   .is-touch #panel {
     position: fixed; top: 0; left: 0; right: 0;
     width: 100%; flex-direction: row; flex-wrap: wrap;
@@ -160,6 +162,26 @@
   .is-touch #btn2p, .is-touch #btnEndless { display: none; }
   .is-touch #overlay p br:first-child { display: none; }
   .is-touch #overlay p .pc-only { display: none; }
+  /* Floating joystick */
+  .floating-joystick {
+    position: fixed; width: 150px; height: 150px; z-index: 25;
+    pointer-events: none; display: none;
+  }
+  .floating-joystick.active { display: block; }
+  .floating-joystick-ring {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 130px; height: 130px;
+    border: 3px solid rgba(255,255,255,0.3);
+    border-radius: 50%; box-sizing: border-box;
+  }
+  .floating-joystick-thumb {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 50px; height: 50px;
+    border-radius: 50%; background: rgba(255,255,255,0.25);
+  }
+  /* Keep base joystick styles for desktop fallback */
   .joystick { position: relative; width: 150px; height: 150px; flex-shrink: 0; }
   .joystick-ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 130px; height: 130px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; box-sizing: border-box; }
   .joystick-thumb { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.25); transition: background 0.1s; }
@@ -232,15 +254,15 @@
   </div>
   <!-- 触屏控制 -->
   <div id="touch-controls">
-    <div class="joystick" id="joystick">
-      <div class="joystick-ring"></div>
-      <div class="joystick-thumb" id="joystickThumb"></div>
-    </div>
     <div class="fire-wrap">
       <div class="fire-btn" id="btnFire">开火</div>
       <div class="tc-pause" id="btnPause">⏸</div>
       <div class="tc-pause" id="btnMenu" style="margin-top:4px;width:52px;height:30px;font-size:11px;">主菜单</div>
     </div>
+  </div>
+  <div class="floating-joystick" id="floatingJoystick">
+    <div class="floating-joystick-ring"></div>
+    <div class="floating-joystick-thumb" id="floatingThumb"></div>
   </div>
 </div>
 
@@ -1759,69 +1781,74 @@
     // 阻止页面滚动/缩放
     document.addEventListener('touchmove', e=>{ if (e.target.closest('#game,#touch-controls')) e.preventDefault(); }, {passive:false});
 
-    // Joystick
-    const joystick = document.getElementById('joystick');
-    const thumb = document.getElementById('joystickThumb');
-    let joystickTouch = null;
-    const deadZone = 15;
-    const maxDist = 55;
+    // Floating joystick — appears wherever left thumb touches
+    const flJoy = document.getElementById('floatingJoystick');
+    const flThumb = document.getElementById('floatingThumb');
+    let flTouchId = null;
+    let flCenterX = 0, flCenterY = 0;
+    const flMaxDist = 55;
+    const flDeadZone = 15;
 
     function setMoveKeys(dx, dy) {
-      keys['w'] = dy < -deadZone;
-      keys['s'] = dy > deadZone;
-      keys['a'] = dx < -deadZone;
-      keys['d'] = dx > deadZone;
+      keys['w'] = dy < -flDeadZone;
+      keys['s'] = dy > flDeadZone;
+      keys['a'] = dx < -flDeadZone;
+      keys['d'] = dx > flDeadZone;
     }
 
-    function updateJoystick(touch) {
-      const rect = joystick.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      let dx = touch.clientX - cx;
-      let dy = touch.clientY - cy;
+    function showJoy(x, y) {
+      flJoy.style.left = x + 'px';
+      flJoy.style.top = y + 'px';
+      flJoy.classList.add('active');
+      flThumb.style.transform = 'translate(-50%,-50%)';
+    }
+
+    function hideJoy() {
+      flTouchId = null;
+      flJoy.classList.remove('active');
+      setMoveKeys(0, 0);
+    }
+
+    function updateJoy(touch) {
+      let dx = touch.clientX - flCenterX;
+      let dy = touch.clientY - flCenterY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist > maxDist) {
-        const ratio = maxDist / dist;
+      if (dist > flMaxDist) {
+        const ratio = flMaxDist / dist;
         dx *= ratio;
         dy *= ratio;
       }
-      thumb.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+      flThumb.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
       setMoveKeys(dx, dy);
     }
 
-    joystick.addEventListener('touchstart', e => {
-      e.preventDefault();
-      if (joystickTouch === null) {
-        const t = e.changedTouches[0];
-        joystickTouch = t.identifier;
-        joystick.classList.add('active');
-        updateJoystick(t);
-      }
-    }, {passive: false});
-
-    joystick.addEventListener('touchmove', e => {
-      e.preventDefault();
+    document.addEventListener('touchstart', e => {
       for (const t of e.changedTouches) {
-        if (t.identifier === joystickTouch) updateJoystick(t);
-      }
-    }, {passive: false});
-
-    joystick.addEventListener('touchend', e => {
-      for (const t of e.changedTouches) {
-        if (t.identifier === joystickTouch) {
-          joystickTouch = null;
-          joystick.classList.remove('active');
-          thumb.style.transform = 'translate(-50%,-50%)';
-          setMoveKeys(0, 0);
+        if (t.clientX > window.innerWidth * 0.62) continue;
+        if (t.target.closest('#touch-controls,#overlay,#upgradeOverlay')) continue;
+        if (flTouchId === null) {
+          flTouchId = t.identifier;
+          flCenterX = t.clientX;
+          flCenterY = t.clientY;
+          showJoy(t.clientX, t.clientY);
         }
       }
     }, {passive: false});
 
-    joystick.addEventListener('touchcancel', e => {
-      joystickTouch = null;
-      joystick.classList.remove('active');
-      thumb.style.transform = 'translate(-50%,-50%)';
-      setMoveKeys(0, 0);
+    document.addEventListener('touchmove', e => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === flTouchId) { updateJoy(t); e.preventDefault(); }
+      }
+    }, {passive: false});
+
+    document.addEventListener('touchend', e => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === flTouchId) hideJoy();
+      }
+    }, {passive: false});
+
+    document.addEventListener('touchcancel', e => {
+      hideJoy();
     }, {passive: false});
 
     // Fire button
