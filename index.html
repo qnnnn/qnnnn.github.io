@@ -162,26 +162,14 @@
   .is-touch #btn2p, .is-touch #btnEndless { display: none; }
   .is-touch #overlay p br:first-child { display: none; }
   .is-touch #overlay p .pc-only { display: none; }
-  /* Floating joystick */
-  .floating-joystick {
-    position: fixed; width: 150px; height: 150px; z-index: 25;
-    pointer-events: none; display: none;
-    transform: translate(-50%, -50%);
+  .touch-hint {
+    display: none;
+    font-size: 11px; color: rgba(255,255,255,0.35);
+    text-align: center;
+    padding: 4px 0 6px;
+    pointer-events: none;
   }
-  .floating-joystick.active { display: block; }
-  .floating-joystick-ring {
-    position: absolute; left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    width: 130px; height: 130px;
-    border: 3px solid rgba(255,255,255,0.3);
-    border-radius: 50%; box-sizing: border-box;
-  }
-  .floating-joystick-thumb {
-    position: absolute; left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    width: 50px; height: 50px;
-    border-radius: 50%; background: rgba(255,255,255,0.25);
-  }
+  .is-touch .touch-hint { display: block; }
   /* Keep base joystick styles for desktop fallback */
   .joystick { position: relative; width: 150px; height: 150px; flex-shrink: 0; }
   .joystick-ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 130px; height: 130px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; box-sizing: border-box; }
@@ -261,10 +249,8 @@
       <div class="tc-pause" id="btnMenu" style="margin-top:4px;width:52px;height:30px;font-size:11px;">主菜单</div>
     </div>
   </div>
-  <div class="floating-joystick" id="floatingJoystick">
-    <div class="floating-joystick-ring"></div>
-    <div class="floating-joystick-thumb" id="floatingThumb"></div>
-  </div>
+  <!-- 触屏控制提示 -->
+  <div class="touch-hint">左屏幕滑动移动 · 右按钮射击</div>
 </div>
 
 <script>
@@ -752,6 +738,24 @@
     if (canMove(t, nx, ny)) { t.x = nx; t.y = ny; }
   }
 
+  // 视线检测：两点之间是否有砖/钢墙阻挡
+  function hasLineOfSight(x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < 1) return true;
+    const steps = Math.ceil(dist / (TILE * 0.6));
+    for (let i = 0; i <= steps; i++) {
+      const px = x1 + dx * (i / steps);
+      const py = y1 + dy * (i / steps);
+      const tc = Math.floor(px / TILE);
+      const tr = Math.floor(py / TILE);
+      if (tc < 0 || tc >= COLS || tr < 0 || tr >= ROWS) return false;
+      const tile = map[tr][tc];
+      if (tile === 1 || tile === 2) return false; // brick/steel blocks
+    }
+    return true;
+  }
+
   function shoot(t) {
     if (t.cooldown > 0) return;
     t.cooldown = t.isPlayer ? 28 : (t.rapid ? 30 : 50);
@@ -958,7 +962,7 @@
         );
         const baseChance = 0.004 + Math.min(level-1, 6) * 0.002;
         const shootChance = aligned ? baseChance * 3 : baseChance;
-        if (Math.random() < shootChance) shoot(e);
+        if (Math.random() < shootChance && player && player.alive && hasLineOfSight(e.x+e.w/2, e.y+e.h/2, player.x+player.w/2, player.y+player.h/2)) shoot(e);
       }
     }
 
@@ -987,7 +991,7 @@
       const d = DIR[boss.moveDir];
       const nx = boss.x + d.x * spd * dt, ny = boss.y + d.y * spd * dt;
       if (canMove(boss, nx, ny)) { boss.x = nx; boss.y = ny; }
-      if (boss.cooldown <= 0) {
+      if (boss.cooldown <= 0 && player && player.alive && hasLineOfSight(boss.x+boss.w/2, boss.y+boss.h/2, player.x+player.w/2, player.y+player.h/2)) {
         const bulletCount = 1 + Math.floor(level / 10);
         const perp = d.x ? {x:0,y:-1} : {x:1,y:0};
         const cx = boss.x + boss.w/2, cy = boss.y + boss.h/2;
@@ -1006,7 +1010,7 @@
       // Phase 2 burst (fires alongside normal shot)
       if (boss.phaseTriggered) {
         if (boss.phaseBurstCooldown > 0) boss.phaseBurstCooldown -= dt;
-        if (boss.phaseBurstCooldown <= 0) {
+        if (boss.phaseBurstCooldown <= 0 && player && player.alive && hasLineOfSight(boss.x+boss.w/2, boss.y+boss.h/2, player.x+player.w/2, player.y+player.h/2)) {
           boss.phaseBurstCooldown = 60;
           const bcx = boss.x + boss.w/2, bcy = boss.y + boss.h/2;
           const bd = DIR[boss.dir];
@@ -1045,7 +1049,7 @@
         ally.aiTimer = 15 + ((Math.random()*20)|0);
       }
       moveTank(ally, dt);
-      if (target && ally.cooldown <= 0 && Math.random() < (ally.isAirdrop ? 0.4 : 0.7)) {
+      if (target && ally.cooldown <= 0 && Math.random() < (ally.isAirdrop ? 0.4 : 0.7) && hasLineOfSight(ally.x+ally.w/2, ally.y+ally.h/2, target.x+target.w/2, target.y+target.h/2)) {
         ally.dir = dirTowards(ally, target);
         shoot(ally);
         if (ally.isAirdrop) ally.cooldown = 60;
@@ -1782,9 +1786,7 @@
     // 阻止页面滚动/缩放
     document.addEventListener('touchmove', e=>{ if (e.target.closest('#game,#touch-controls')) e.preventDefault(); }, {passive:false});
 
-    // Floating joystick — appears wherever left thumb touches
-    const flJoy = document.getElementById('floatingJoystick');
-    const flThumb = document.getElementById('floatingThumb');
+    // Invisible touch movement — slide left side of screen
     let flTouchId = null;
     let flCenterX = 0, flCenterY = 0;
     const flMaxDist = 55;
@@ -1797,20 +1799,7 @@
       keys['d'] = dx > flDeadZone;
     }
 
-    function showJoy(x, y) {
-      flJoy.style.left = x + 'px';
-      flJoy.style.top = y + 'px';
-      flJoy.classList.add('active');
-      flThumb.style.transform = 'translate(-50%,-50%)';
-    }
-
-    function hideJoy() {
-      flTouchId = null;
-      flJoy.classList.remove('active');
-      setMoveKeys(0, 0);
-    }
-
-    function updateJoy(touch) {
+    function updateMove(touch) {
       let dx = touch.clientX - flCenterX;
       let dy = touch.clientY - flCenterY;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1819,8 +1808,12 @@
         dx *= ratio;
         dy *= ratio;
       }
-      flThumb.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
       setMoveKeys(dx, dy);
+    }
+
+    function stopMove() {
+      flTouchId = null;
+      setMoveKeys(0, 0);
     }
 
     document.addEventListener('touchstart', e => {
@@ -1831,25 +1824,24 @@
           flTouchId = t.identifier;
           flCenterX = t.clientX;
           flCenterY = t.clientY;
-          showJoy(t.clientX, t.clientY);
         }
       }
     }, {passive: false});
 
     document.addEventListener('touchmove', e => {
       for (const t of e.changedTouches) {
-        if (t.identifier === flTouchId) { updateJoy(t); e.preventDefault(); }
+        if (t.identifier === flTouchId) { updateMove(t); e.preventDefault(); }
       }
     }, {passive: false});
 
     document.addEventListener('touchend', e => {
       for (const t of e.changedTouches) {
-        if (t.identifier === flTouchId) hideJoy();
+        if (t.identifier === flTouchId) stopMove();
       }
     }, {passive: false});
 
     document.addEventListener('touchcancel', e => {
-      hideJoy();
+      stopMove();
     }, {passive: false});
 
     // Fire button
