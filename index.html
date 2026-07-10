@@ -135,8 +135,9 @@
     user-select: none;
     -webkit-user-select: none;
   }
-  .is-touch #touch-controls { display: flex; }
-  .is-touch #game { flex-direction: column; padding-top: 32px; }
+  .is-touch .wrap { display: flex; flex-direction: column; }
+  .is-touch #touch-controls { display: flex; position: relative; bottom: auto; left: auto; right: auto; height: 130px; flex-shrink: 0; }
+  .is-touch #game { flex-direction: column; padding-top: 36px; flex: 1; overflow: hidden; }
   .is-touch #panel {
     position: fixed; top: 0; left: 0; right: 0;
     width: 100%; flex-direction: row; flex-wrap: wrap;
@@ -246,7 +247,7 @@
     <div class="fire-wrap">
       <div class="fire-btn" id="btnFire">开火</div>
       <div class="tc-pause" id="btnPause">⏸</div>
-      <div class="tc-pause" id="btnMenu" style="margin-top:4px;width:48px;height:28px;font-size:11px;">菜单</div>
+      <div class="tc-pause" id="btnMenu" style="margin-top:4px;width:52px;height:30px;font-size:11px;">主菜单</div>
     </div>
   </div>
 </div>
@@ -1731,16 +1732,31 @@
 
   function resizeGame(){
     const g = document.getElementById('game');
-    g.style.transform = 'none';
-    const w = g.offsetWidth, h = g.offsetHeight;
-    if (w === 0 || h === 0) return;
-    const tcH = document.body.classList.contains('is-touch') ? 130 : 0;
-    const hudH = document.body.classList.contains('is-touch') ? 32 : 0;
-    const availW = window.innerWidth - 32;
-    const availH = window.innerHeight - tcH - hudH - 32;
-    const s = Math.min(availW / w, availH / h, 1.5);
-    g.style.transformOrigin = 'center center';
-    g.style.transform = 'scale('+s+')';
+    const cv = document.getElementById('screen');
+    const isTouch = document.body.classList.contains('is-touch');
+    if (isTouch) {
+      // Touch: #game is flex:1 in column layout, scale canvas to fit inside it
+      g.style.transform = 'none';
+      cv.style.transform = 'none';
+      const padTop = 36;
+      const availH = g.offsetHeight - padTop;
+      const availW = g.offsetWidth;
+      if (availW === 0 || availH === 0) return;
+      const s = Math.min(availW / cv.width, availH / cv.height, 1.5);
+      cv.style.transformOrigin = 'center center';
+      cv.style.transform = 'scale('+s+')';
+    } else {
+      // Desktop: scale #game to fit viewport
+      cv.style.transform = 'none';
+      g.style.transform = 'none';
+      const w = g.offsetWidth, h = g.offsetHeight;
+      if (w === 0 || h === 0) return;
+      const availW = window.innerWidth - 32;
+      const availH = window.innerHeight - 32;
+      const s = Math.min(availW / w, availH / h, 1.5);
+      g.style.transformOrigin = 'center center';
+      g.style.transform = 'scale('+s+')';
+    }
   }
   window.addEventListener('resize', resizeGame);
   resizeGame();
