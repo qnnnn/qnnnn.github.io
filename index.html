@@ -1094,7 +1094,7 @@
     }
 
     // AI 队友（空投降落中不行动）
-    if (ally && ally.alive && freezeTimer <= 0 && !ally.dropIn) {
+    if (ally && ally.alive && !ally.dropIn) {
       if (ally.cooldown > 0) ally.cooldown-=dt;
       ally.aiTimer-=dt;
       let target = null, minD2 = Infinity;
