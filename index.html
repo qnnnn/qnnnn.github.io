@@ -855,63 +855,104 @@
       if (keys['k']) shoot(player2);
     }
 
-    // 敌人AI（随关卡提升智能）
+    // 敌人AI（视线追踪 + 方向持久 + 智能绕路）
     for (const e of enemies) {
       if (!e.alive) continue;
       if (freezeTimer > 0) continue;
       e.aiTimer-=dt;
+      if (e.stuckFrames===undefined) e.stuckFrames=0;
+      if (e.movePersist===undefined) e.movePersist=0;
+      // 视线检测
+      const canSeePlayer = player && player.alive &&
+        hasLineOfSight(e.x+e.w/2, e.y+e.h/2, player.x+player.w/2, player.y+player.h/2) &&
+        (e.seeDist||12) * TILE >= Math.hypot(player.x-e.x, player.y-e.y);
+      const basePos = {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true};
+      const canSeeBase = hasLineOfSight(e.x+e.w/2, e.y+e.h/2, basePos.x, basePos.y);
+      // 决定方向（方向持久：aiTimer控制重评估间隔）
       if (e.aiTimer<=0 || !e.aiDir) {
-        const dirToBase = dirTowards(e, {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true});
         if (e.type === 'suicide') {
           const target = (dualMode && player2 && player2.alive && Math.random()<0.5) ? player2 : player;
-          e.aiDir = target && target.alive ? dirTowards(e, target) : dirToBase;
+          if (canSeePlayer && target) {
+            e.aiDir = dirTowards(e, target);
+            e.movePersist = 12 + ((Math.random()*8)|0);
+          } else {
+            e.aiDir = dirTowards(e, basePos);
+            e.movePersist = 20 + ((Math.random()*15)|0);
+          }
         } else if (e.type === 'scout') {
-          // 侦察兵: 直奔基地报警，不走位
-          e.aiDir = dirTowards(e, {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true});
+          e.aiDir = dirTowards(e, basePos);
+          e.movePersist = 60;
         } else {
-          const seekPlayer = Math.random() < 0.4 + Math.min(level-1, 8) * 0.05;
-          if (seekPlayer) e.aiDir = dirTowards(e, player);
-          else if (Math.random()<0.35) e.aiDir = dirToBase;
-          else e.aiDir = DIR_LIST[(Math.random()*4)|0];
-        }
-        e.dir = e.aiDir;
-        e.aiTimer = 15 + ((Math.random()*20)|0);
-      }
-      // 前方有砖墙？开火击碎（钢墙不浪费子弹）
-      if (e.cooldown <= 0 && e.type !== 'scout' && e.type !== 'suicide') {
-        const ahead = tileAhead(e);
-        if (ahead === 1) shoot(e); // 击碎砖墙
-      }
-      const before = {x:e.x,y:e.y};
-      moveTank(e, dt);
-      if (before.x===e.x && before.y===e.y) {
-        const ahead = tileAhead(e);
-        const isHard = ahead === 2 || ahead === 5; // 钢墙 / 不可摧毁
-        if (isHard) {
-          // 硬墙挡住——立刻选朝向目标的最优垂直方向绕路
-          const target = (e.type === 'suicide') ? (player && player.alive ? player : {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true}) :
-                         (e.type === 'scout') ? {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true} :
-                         (player && player.alive ? player : null);
-          const perpDirs = e.dir==='up'||e.dir==='down' ? ['left','right'] : ['up','down'];
-          e.dir = bestDir(perpDirs, e, target);
-          e.aiDir = e.dir;
-          if (e.type !== 'scout') e.aiTimer = 5 + ((Math.random()*8)|0);
-        } else {
-          const perp = e.dir==='up'||e.dir==='down' ? ['left','right'] : ['up','down'];
-          e.dir = perp[(Math.random()*2)|0];
-          e.aiDir = e.dir;
-          moveTank(e, dt);
-          if (before.x===e.x && before.y===e.y) {
-            // 还卡着——硬绕路
-            const perpDirs = e.dir==='up'||e.dir==='down' ? ['left','right'] : ['up','down'];
-            const target = (e.type === 'suicide') ? (player && player.alive ? player : {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true}) :
-                           (e.type === 'scout') ? {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true} :
-                           (player && player.alive ? player : null);
-            e.dir = bestDir(perpDirs, e, target);
-            e.aiDir = e.dir;
-            e.aiTimer = 5 + ((Math.random()*8)|0);
+          // 普通敌人：看到玩家→追（80%），看不到→随机往玩家方向/基地方向走
+          if (canSeePlayer) {
+            if (Math.random() < 0.8) {
+              e.aiDir = dirTowards(e, player);
+              e.movePersist = 12 + ((Math.random()*10)|0);
+            } else {
+              e.aiDir = dirSideways(e, player);
+              e.movePersist = 8 + ((Math.random()*8)|0);
+            }
+          } else {
+            const r = Math.random();
+            const seekP = 0.25 + Math.min(level-1, 8) * 0.04;
+            if (r < seekP && player && player.alive) {
+              e.aiDir = dirTowards(e, player);
+              e.movePersist = 15 + ((Math.random()*15)|0);
+            } else if (r < seekP + 0.25) {
+              e.aiDir = dirTowards(e, basePos);
+              e.movePersist = 20 + ((Math.random()*15)|0);
+            } else {
+              e.aiDir = DIR_LIST[(Math.random()*4)|0];
+              e.movePersist = 25 + ((Math.random()*20)|0);
+            }
           }
         }
+        e.dir = e.aiDir;
+        e.aiTimer = e.movePersist;
+        e.stuckFrames = 0;
+      }
+      // 前方砖墙？开火击碎
+      if (e.cooldown <= 0 && e.type !== 'scout' && e.type !== 'suicide') {
+        if (tileAhead(e) === 1) shoot(e);
+      }
+      // 移动 + 卡住处理
+      const before = {x:e.x, y:e.y};
+      moveTank(e, dt);
+      if (before.x===e.x && before.y===e.y) {
+        e.stuckFrames++;
+        if (e.stuckFrames > 8) {
+          const ahead = tileAhead(e);
+          const isHard = ahead === 2 || ahead === 5;
+          const getTarget = () => {
+            if (e.type === 'suicide') return (player&&player.alive?player:basePos);
+            if (e.type === 'scout') return basePos;
+            return (player&&player.alive?player:null);
+          };
+          if (isHard) {
+            // 钢墙→选绕路方向
+            const perpDirs = e.dir==='up'||e.dir==='down'?['left','right']:['up','down'];
+            e.dir = bestDir(perpDirs, e, getTarget());
+            e.aiDir = e.dir; e.aiTimer = 6+((Math.random()*8)|0);
+          } else if (e.stuckFrames > 15) {
+            // 严重卡死→先掉头再重定向
+            const opp = {up:'down',down:'up',left:'right',right:'left'}[e.dir];
+            e.dir = opp; e.aiDir = opp;
+            moveTank(e, dt);
+            if (before.x===e.x && before.y===e.y) {
+              // 还是卡→最宽方向
+              e.dir = bestOpenDir(e);
+              e.aiDir = e.dir; e.aiTimer = 5;
+            } else { e.aiTimer = 8; }
+          } else {
+            // 轻微卡→换垂直方向
+            const perp = e.dir==='up'||e.dir==='down'?['left','right']:['up','down'];
+            e.dir = perp[(Math.random()*2)|0]; e.aiDir = e.dir;
+            e.aiTimer = 4+((Math.random()*6)|0);
+          }
+          e.stuckFrames = 0;
+        }
+      } else {
+        if (e.stuckFrames > 0) e.stuckFrames = Math.max(0, e.stuckFrames-3);
       }
       // 自爆兵：接触玩家或基地即爆炸
       if (e.type === 'suicide' && e.alive) {
@@ -1378,6 +1419,25 @@
       const dx = target.x - nx, dy = target.y - ny;
       const dist = dx*dx + dy*dy;
       if (dist < bestDist) { bestDist = dist; best = dir; }
+    }
+    return best;
+  }
+
+  // 选前方最空旷的方向（卡死时自救）
+  function bestOpenDir(t) {
+    let best = 'up', bestOpen = 0;
+    for (const dir of ['up','down','left','right']) {
+      const d = DIR[dir];
+      let open = 0;
+      for (let i=1; i<=4; i++) {
+        const cx = t.x + t.w/2 + d.x * TILE * i;
+        const cy = t.y + t.h/2 + d.y * TILE * i;
+        const tc = Math.floor(cx/TILE), tr = Math.floor(cy/TILE);
+        if (tc<0||tc>=COLS||tr<0||tr>=ROWS) break;
+        if (map[tr][tc]===0||map[tr][tc]===4||map[tr][tc]===6) open = i;
+        else break;
+      }
+      if (open > bestOpen) { bestOpen = open; best = dir; }
     }
     return best;
   }
