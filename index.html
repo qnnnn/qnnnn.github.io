@@ -1038,6 +1038,7 @@
     // 空投降落动画
     if (ally && ally.dropIn && ally.dropIn > 0) {
       ally.dropIn-=dt;
+      if (ally.dropIn < 0) ally.dropIn = 0; // 防止 dt 过大导致负数卡死
       ally.y += (ally.targetY - ally.y + TILE) / 30 * dt;
       if (ally.dropIn <= 0) {
         ally.y = ally.targetY;
