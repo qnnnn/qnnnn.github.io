@@ -125,7 +125,7 @@
     display: none;
     position: fixed;
     bottom: 0; left: 0; right: 0;
-    height: 165px;
+    height: 155px;
     z-index: 10;
     justify-content: space-around;
     align-items: center;
@@ -135,9 +135,15 @@
     user-select: none;
     -webkit-user-select: none;
   }
-  .is-touch .wrap { display: flex; flex-direction: column; }
-  .is-touch #touch-controls { display: flex; position: relative; bottom: auto; left: auto; right: auto; height: 165px; flex-shrink: 0; justify-content: space-around; align-items: center; padding: 0 16px; }
-  .is-touch #game { flex-direction: column; padding-top: 36px; flex: 1; overflow: hidden; }
+  .is-touch #game { flex-direction: column; padding-top: 36px; height: 100%; overflow: hidden; }
+  .is-touch #touch-controls {
+    display: flex; position: fixed; bottom: 10px; left: 0; right: 0;
+    height: 155px; z-index: 10;
+    justify-content: space-between; align-items: flex-end;
+    padding: 0 24px;
+    background: transparent; pointer-events: none;
+  }
+  .is-touch #touch-controls > * { pointer-events: auto; }
   .is-touch #panel {
     position: fixed; top: 0; left: 0; right: 0;
     width: 100%; flex-direction: row; flex-wrap: wrap;
@@ -154,13 +160,13 @@
   .is-touch #btn2p, .is-touch #btnEndless { display: none; }
   .is-touch #overlay p br:first-child { display: none; }
   .is-touch #overlay p .pc-only { display: none; }
-  .joystick { position: relative; width: 140px; height: 140px; flex-shrink: 0; }
-  .joystick-ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 120px; height: 120px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; box-sizing: border-box; }
-  .joystick-thumb { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.25); pointer-events: none; transition: background 0.1s; }
+  .joystick { position: relative; width: 150px; height: 150px; flex-shrink: 0; }
+  .joystick-ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 130px; height: 130px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; box-sizing: border-box; }
+  .joystick-thumb { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.25); transition: background 0.1s; }
   .joystick.active .joystick-thumb { background: rgba(255,255,255,0.45); }
-  .fire-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .fire-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-bottom: 8px; }
   .fire-btn {
-    width: 90px; height: 90px;
+    width: 96px; height: 96px;
     border-radius: 50%;
     background: rgba(255,60,60,0.25);
     border: 3px solid rgba(255,60,60,0.45);
@@ -1721,16 +1727,15 @@
     const cv = document.getElementById('screen');
     const isTouch = document.body.classList.contains('is-touch');
     if (isTouch) {
-      // Touch: #game is flex:1 in column layout, scale canvas to fit inside it
+      // Touch: game fills viewport, controls float on top
       g.style.transform = 'none';
       cv.style.transform = 'none';
-      const padTop = 36;
-      const availH = g.offsetHeight - padTop;
-      const availW = g.offsetWidth;
+      const availH = window.innerHeight - 36;
+      const availW = window.innerWidth;
       if (availW === 0 || availH === 0) return;
       const s = Math.min(availW / cv.width, availH / cv.height, 1.5);
       cv.style.transformOrigin = 'center center';
-      cv.style.transform = 'scale('+s+')';
+      cv.style.transform = 'scale(' + s + ')';
     } else {
       // Desktop: scale #game to fit viewport
       cv.style.transform = 'none';
