@@ -135,15 +135,14 @@
     user-select: none;
     -webkit-user-select: none;
   }
-  .is-touch #game { flex-direction: column; padding-top: 36px; height: 100%; overflow: hidden; }
+  .is-touch .wrap { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+  .is-touch #game { flex-direction: column; align-items: center; justify-content: center; padding: 0; padding-top: 36px; border: none; background: #000; overflow: visible; width: 100%; }
   .is-touch #touch-controls {
-    display: flex; position: fixed; bottom: 10px; left: 0; right: 0;
-    height: 155px; z-index: 10;
+    display: flex; flex: 1;
     justify-content: space-between; align-items: flex-end;
-    padding: 0 24px;
-    background: transparent; pointer-events: none;
+    padding: 0 24px 16px;
+    background: transparent;
   }
-  .is-touch #touch-controls > * { pointer-events: auto; }
   .is-touch #panel {
     position: fixed; top: 0; left: 0; right: 0;
     width: 100%; flex-direction: row; flex-wrap: wrap;
@@ -1727,13 +1726,10 @@
     const cv = document.getElementById('screen');
     const isTouch = document.body.classList.contains('is-touch');
     if (isTouch) {
-      // Touch: game fills viewport, controls float on top
+      // Touch: canvas fills viewport width, controls use remaining space below
       g.style.transform = 'none';
       cv.style.transform = 'none';
-      const availH = window.innerHeight - 36;
-      const availW = window.innerWidth;
-      if (availW === 0 || availH === 0) return;
-      const s = Math.min(availW / cv.width, availH / cv.height, 1.5);
+      const s = Math.min(window.innerWidth / cv.width, 1.5);
       cv.style.transformOrigin = 'center center';
       cv.style.transform = 'scale(' + s + ')';
     } else {
