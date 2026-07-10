@@ -877,17 +877,40 @@
         e.dir = e.aiDir;
         e.aiTimer = 15 + ((Math.random()*20)|0);
       }
+      // 前方有砖墙？开火击碎（钢墙不浪费子弹）
+      if (e.cooldown <= 0 && e.type !== 'scout' && e.type !== 'suicide') {
+        const ahead = tileAhead(e);
+        if (ahead === 1) shoot(e); // 击碎砖墙
+      }
       const before = {x:e.x,y:e.y};
       moveTank(e, dt);
       if (before.x===e.x && before.y===e.y) {
-        const perp = e.dir==='up'||e.dir==='down' ? ['left','right'] : ['up','down'];
-        e.dir = perp[(Math.random()*2)|0];
-        e.aiDir = e.dir;
-        moveTank(e, dt);
-        if (before.x===e.x && before.y===e.y) {
-          e.dir = DIR_LIST[(Math.random()*4)|0];
+        const ahead = tileAhead(e);
+        const isHard = ahead === 2 || ahead === 5; // 钢墙 / 不可摧毁
+        if (isHard) {
+          // 硬墙挡住——立刻选朝向目标的最优垂直方向绕路
+          const target = (e.type === 'suicide') ? (player && player.alive ? player : {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true}) :
+                         (e.type === 'scout') ? {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true} :
+                         (player && player.alive ? player : null);
+          const perpDirs = e.dir==='up'||e.dir==='down' ? ['left','right'] : ['up','down'];
+          e.dir = bestDir(perpDirs, e, target);
           e.aiDir = e.dir;
-          e.aiTimer = 10 + ((Math.random()*15)|0);
+          if (e.type !== 'scout') e.aiTimer = 5 + ((Math.random()*8)|0);
+        } else {
+          const perp = e.dir==='up'||e.dir==='down' ? ['left','right'] : ['up','down'];
+          e.dir = perp[(Math.random()*2)|0];
+          e.aiDir = e.dir;
+          moveTank(e, dt);
+          if (before.x===e.x && before.y===e.y) {
+            // 还卡着——硬绕路
+            const perpDirs = e.dir==='up'||e.dir==='down' ? ['left','right'] : ['up','down'];
+            const target = (e.type === 'suicide') ? (player && player.alive ? player : {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true}) :
+                           (e.type === 'scout') ? {x:base.c*TILE+TILE/2, y:base.r*TILE+TILE/2, alive:true} :
+                           (player && player.alive ? player : null);
+            e.dir = bestDir(perpDirs, e, target);
+            e.aiDir = e.dir;
+            e.aiTimer = 5 + ((Math.random()*8)|0);
+          }
         }
       }
       // 自爆兵：接触玩家或基地即爆炸
@@ -1048,7 +1071,28 @@
         else ally.dir = Math.random()<0.5 ? dirSideways(ally, target) : dirTowards(ally, target);
         ally.aiTimer = 15 + ((Math.random()*20)|0);
       }
+      // 前方砖墙？开火
+      if (ally.cooldown <= 0 && tileAhead(ally) === 1) shoot(ally);
+      const allyBefore = {x:ally.x, y:ally.y};
       moveTank(ally, dt);
+      if (allyBefore.x===ally.x && allyBefore.y===ally.y && ally.aiTimer > 0) {
+        // 卡住了——重定向绕开
+        const ahead = tileAhead(ally);
+        if (ahead === 2 || ahead === 5) { // 钢墙
+          const perpDirs = ally.dir==='up'||ally.dir==='down' ? ['left','right'] : ['up','down'];
+          ally.dir = target ? bestDir(perpDirs, ally, target) : perpDirs[(Math.random()*2)|0];
+          ally.aiTimer = 5 + ((Math.random()*8)|0);
+        } else {
+          const perp = ally.dir==='up'||ally.dir==='down' ? ['left','right'] : ['up','down'];
+          ally.dir = perp[(Math.random()*2)|0];
+          moveTank(ally, dt);
+          if (allyBefore.x===ally.x && allyBefore.y===ally.y) {
+            const perpDirs = ally.dir==='up'||ally.dir==='down' ? ['left','right'] : ['up','down'];
+            ally.dir = target ? bestDir(perpDirs, ally, target) : perpDirs[(Math.random()*2)|0];
+            ally.aiTimer = 5 + ((Math.random()*8)|0);
+          }
+        }
+      }
       if (target && ally.cooldown <= 0 && Math.random() < (ally.isAirdrop ? 0.4 : 0.7) && hasLineOfSight(ally.x+ally.w/2, ally.y+ally.h/2, target.x+target.w/2, target.y+target.h/2)) {
         ally.dir = dirTowards(ally, target);
         shoot(ally);
@@ -1314,6 +1358,28 @@
     const dx = t.x - e.x, dy = t.y - e.y;
     if (Math.abs(dx)>Math.abs(dy)) return Math.random()<0.5?'up':'down';
     return Math.random()<0.5?'left':'right';
+  }
+  // 获取坦克前方1.5格的瓦片值（0=空地 1=砖 2=钢 3=基地 5=不可摧毁）
+  function tileAhead(t) {
+    const d = DIR[t.dir];
+    const cx = t.x + t.w/2 + d.x * TILE * 1.5;
+    const cy = t.y + t.h/2 + d.y * TILE * 1.5;
+    const tc = Math.floor(cx / TILE), tr = Math.floor(cy / TILE);
+    if (tc < 0 || tc >= COLS || tr < 0 || tr >= ROWS) return -1;
+    return map[tr][tc];
+  }
+  // 从候选方向中选最靠近目标的方向
+  function bestDir(dirs, t, target) {
+    if (!target || !target.alive) return dirs[(Math.random()*2)|0];
+    let best = dirs[0], bestDist = Infinity;
+    for (const dir of dirs) {
+      const d = DIR[dir];
+      const nx = t.x + d.x * TILE, ny = t.y + d.y * TILE;
+      const dx = target.x - nx, dy = target.y - ny;
+      const dist = dx*dx + dy*dy;
+      if (dist < bestDist) { bestDist = dist; best = dir; }
+    }
+    return best;
   }
 
   function nextLevel(){
