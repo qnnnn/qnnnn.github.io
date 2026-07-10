@@ -125,18 +125,18 @@
     display: none;
     position: fixed;
     bottom: 0; left: 0; right: 0;
-    height: 120px;
+    height: 130px;
     z-index: 10;
-    justify-content: space-between;
+    justify-content: space-around;
     align-items: center;
-    padding: 0 12px;
+    padding: 0 24px;
     background: rgba(0,0,0,0.55);
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
   }
   .is-touch #touch-controls { display: flex; }
-  .is-touch #game { flex-direction: column; padding-top: 44px; }
+  .is-touch #game { flex-direction: column; padding-top: 32px; }
   .is-touch #panel {
     position: fixed; top: 0; left: 0; right: 0;
     width: 100%; flex-direction: row; flex-wrap: wrap;
@@ -153,10 +153,10 @@
   .is-touch #btn2p, .is-touch #btnEndless { display: none; }
   .is-touch #overlay p br:first-child { display: none; }
   .is-touch #overlay p .pc-only { display: none; }
-  .dpad { position: relative; width: 140px; height: 140px; flex-shrink: 0; }
+  .dpad { position: relative; width: 150px; height: 150px; flex-shrink: 0; }
   .dpad-btn {
     position: absolute;
-    width: 50px; height: 50px;
+    width: 54px; height: 54px;
     border-radius: 10px;
     background: rgba(255,255,255,0.12);
     border: 2px solid rgba(255,255,255,0.25);
@@ -169,9 +169,9 @@
   #btnDown { bottom: 4px; left: 50%; transform: translateX(-50%); }
   #btnLeft { left: 4px; top: 50%; transform: translateY(-50%); }
   #btnRight { right: 4px; top: 50%; transform: translateY(-50%); }
-  .fire-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .fire-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
   .fire-btn {
-    width: 80px; height: 80px;
+    width: 85px; height: 85px;
     border-radius: 50%;
     background: rgba(255,60,60,0.25);
     border: 3px solid rgba(255,60,60,0.45);
@@ -246,7 +246,7 @@
     <div class="fire-wrap">
       <div class="fire-btn" id="btnFire">开火</div>
       <div class="tc-pause" id="btnPause">⏸</div>
-      <div class="tc-pause" id="btnMenu" style="margin-top:4px;width:44px;height:22px;font-size:10px;">菜单</div>
+      <div class="tc-pause" id="btnMenu" style="margin-top:4px;width:48px;height:28px;font-size:11px;">菜单</div>
     </div>
   </div>
 </div>
@@ -1734,8 +1734,8 @@
     g.style.transform = 'none';
     const w = g.offsetWidth, h = g.offsetHeight;
     if (w === 0 || h === 0) return;
-    const tcH = document.body.classList.contains('is-touch') ? 120 : 0;
-    const hudH = document.body.classList.contains('is-touch') ? 44 : 0;
+    const tcH = document.body.classList.contains('is-touch') ? 130 : 0;
+    const hudH = document.body.classList.contains('is-touch') ? 32 : 0;
     const availW = window.innerWidth - 32;
     const availH = window.innerHeight - tcH - hudH - 32;
     const s = Math.min(availW / w, availH / h, 1.5);
