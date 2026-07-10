@@ -136,12 +136,13 @@
     -webkit-user-select: none;
   }
   .is-touch .wrap { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
-  .is-touch #game { flex-direction: column; align-items: center; justify-content: center; padding: 0; padding-top: 36px; border: none; background: #000; overflow: visible; width: 100%; }
+  .is-touch #game { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; padding: 0; padding-top: 36px; margin: 0; border: none; border-radius: 0; background: #000; overflow: hidden; gap: 0; }
+  .is-touch #screen { border: none; }
   .is-touch #touch-controls {
     display: flex; flex: 1;
     justify-content: space-between; align-items: flex-end;
     padding: 0 24px 16px;
-    background: transparent;
+    background: transparent; z-index: 10;
   }
   .is-touch #panel {
     position: fixed; top: 0; left: 0; right: 0;
