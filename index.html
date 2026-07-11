@@ -16,12 +16,14 @@
     overflow: hidden;
   }
   /* 页面背景纹理 */
-  body::before {
-    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  .wrap::before {
+    content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
     background:
-      radial-gradient(ellipse at 20% 50%, rgba(30,60,30,0.15) 0%, transparent 60%),
-      radial-gradient(ellipse at 80% 20%, rgba(40,40,60,0.12) 0%, transparent 50%),
-      repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.015) 2px, rgba(255,255,255,0.015) 4px);
+      radial-gradient(ellipse at 15% 85%, rgba(68,200,68,0.10) 0%, transparent 50%),
+      radial-gradient(ellipse at 85% 15%, rgba(200,44,44,0.07) 0%, transparent 45%),
+      radial-gradient(ellipse at 5% 10%, rgba(60,120,220,0.05) 0%, transparent 40%),
+      repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(100,255,100,0.018) 3px, rgba(100,255,100,0.018) 5px),
+      repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(100,255,100,0.018) 3px, rgba(100,255,100,0.018) 5px);
   }
   /* 道具拾取通知（面板内） */
   .pickup-notify {
@@ -96,6 +98,17 @@
     padding: 1px 4px;
     border-radius: 2px;
   }
+  .panel-section {
+    font-size: 11px; color: #6cff6c;
+    border-top: 1px solid #333;
+    margin-top: 6px; padding-top: 4px;
+  }
+  .weapon-row {
+    display: flex; justify-content: space-between;
+    font-size: 11px; padding: 1px 0;
+  }
+  .wpn-val { color: #aaa; }
+  .wpn-val.active { color: #ffd24d; }
   .panel-hint {
     font-size: 10px;
     color: #555;
@@ -171,6 +184,7 @@
   .is-touch #panel .box { border: none; padding: 2px 4px; background: none; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .is-touch #panel .row { gap: 4px; }
   .is-touch #panel .buff-row { display: none; }
+  .buff-row { display: none; }
   .is-touch #panel .panel-hint { display: none; }
   .is-touch #panel .mute-icon { position: absolute; right: 8px; top: 4px; }
   .is-touch #btn2p, .is-touch #btnEndless { display: none; }
@@ -221,8 +235,12 @@
         <div class="row"><span>得分</span><span class="val" id="score">0</span></div>
         <div class="row"><span id="levelLabel">关卡</span><span class="val"><span id="level">1</span> · ❤<span id="lives">3</span></span></div>
         <div class="row"><span>敌军</span><span class="val" id="enemies">0</span></div>
+        <div class="row" id="comboRow" style="display:none"><span>连杀</span><span class="val" id="comboDisplay" style="color:#ff6644">×0</span></div>
         <div class="row"><span>血量</span><span class="val" id="hpDisplay">❤❤❤❤❤</span></div>
         <div class="row"><span>基地</span><span class="val" id="bufBase">❤❤❤❤❤</span></div>
+        <div class="panel-section">⚔ 武器状态</div>
+        <div class="weapon-row"><span class="wpn-val" id="wpnBullet">○ 普通</span><span class="wpn-val" id="wpnShield">-</span></div>
+        <div class="weapon-row"><span class="wpn-val" id="wpnDouble">-</span><span class="wpn-val" id="wpnAp">-</span></div>
         <div class="buff-row">
           <span class="buff-ind" id="bufShield">-</span>
           <span class="buff-ind" id="bufBullet">普通</span>
@@ -286,6 +304,12 @@
   const bufFreezeEl = document.getElementById('bufFreeze');
   const bufApEl = document.getElementById('bufAp');
   const hpDisplay = document.getElementById('hpDisplay');
+  const comboRow = document.getElementById('comboRow');
+  const comboDisplay = document.getElementById('comboDisplay');
+  const wpnBullet = document.getElementById('wpnBullet');
+  const wpnShield = document.getElementById('wpnShield');
+  const wpnDouble = document.getElementById('wpnDouble');
+  const wpnAp = document.getElementById('wpnAp');
   const p2livesEl = document.getElementById('p2lives');
   const p2lifeRow = document.getElementById('p2lifeRow');
   const btn1p = document.getElementById('btn1p');
@@ -1423,6 +1447,22 @@
     }
     bufFreezeEl.textContent = freezeTimer > 0 ? (Math.ceil(freezeTimer/60)+'秒') : '-';
     bufApEl.textContent = apBulletTimer > 0 ? (Math.ceil(apBulletTimer/60)+'秒') : '-';
+    // 武器面板
+    wpnBullet.textContent = bulletUpgraded ? '🔥 强化弹' : '○ 普通弹';
+    wpnBullet.className = bulletUpgraded ? 'wpn-val active' : 'wpn-val';
+    wpnShield.textContent = shieldTimer > 0 ? ('🛡 ' + Math.ceil(shieldTimer/60) + 's') : '-';
+    wpnShield.className = shieldTimer > 0 ? 'wpn-val active' : 'wpn-val';
+    wpnDouble.textContent = doubleShot ? '💥 二连射' : '-';
+    wpnDouble.className = doubleShot ? 'wpn-val active' : 'wpn-val';
+    wpnAp.textContent = apBulletTimer > 0 ? ('⚡ ' + Math.ceil(apBulletTimer/60) + 's') : '-';
+    wpnAp.className = apBulletTimer > 0 ? 'wpn-val active' : 'wpn-val';
+    // 连杀显示
+    if (comboCount >= 2 && comboDisplayTimer > 0) {
+      comboRow.style.display = '';
+      comboDisplay.textContent = '×' + comboCount;
+    } else {
+      comboRow.style.display = 'none';
+    }
     updateHPDisplay();
 
     // 粒子
