@@ -20,10 +20,24 @@
     height: 100%;
     position: relative;
     background:
-      radial-gradient(ellipse at 20% 80%, rgba(40,160,60,0.25) 0%, transparent 55%),
-      radial-gradient(ellipse at 80% 20%, rgba(180,40,40,0.2) 0%, transparent 50%),
-      linear-gradient(135deg, transparent 30%, rgba(100,180,100,0.04) 30%, rgba(100,180,100,0.04) 31%, transparent 31%),
-      linear-gradient(45deg, transparent 70%, rgba(100,160,100,0.03) 70%, rgba(100,160,100,0.03) 71%, transparent 71%);
+      /* Vignette — darken edges for cinematic depth */
+      radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.55) 100%),
+      /* Green base glow — lower-left (home base) */
+      radial-gradient(ellipse at 15% 85%, rgba(40,160,60,0.35) 0%, transparent 50%),
+      /* Red enemy glow — upper-right */
+      radial-gradient(ellipse at 85% 15%, rgba(180,40,40,0.3) 0%, transparent 45%),
+      /* Center ambient glow */
+      radial-gradient(ellipse at 50% 50%, rgba(60,120,60,0.12) 0%, transparent 60%),
+      /* Diagonal grid — primary direction (↘) */
+      repeating-linear-gradient(135deg, transparent, transparent 38px, rgba(100,180,100,0.14) 38px, rgba(100,180,100,0.14) 40px),
+      /* Diagonal grid — secondary direction (↗) */
+      repeating-linear-gradient(45deg, transparent, transparent 38px, rgba(100,160,100,0.11) 38px, rgba(100,160,100,0.11) 40px),
+      /* Horizontal grid lines */
+      repeating-linear-gradient(0deg, transparent, transparent 58px, rgba(100,180,100,0.08) 58px, rgba(100,180,100,0.08) 60px),
+      /* Vertical grid lines */
+      repeating-linear-gradient(90deg, transparent, transparent 58px, rgba(100,180,100,0.08) 58px, rgba(100,180,100,0.08) 60px),
+      /* Base dark color */
+      #0d1117;
   }
   #game {
     display: inline-flex;
