@@ -907,14 +907,26 @@
           e.aiDir = dirTowards(e, basePos);
           e.movePersist = 60;
         } else {
-          // 普通敌人：看到玩家→追（80%），看不到→随机往玩家方向/基地方向走
+          // 普通敌人：保持距离射击，不贴脸
           if (canSeePlayer) {
-            if (Math.random() < 0.8) {
-              e.aiDir = dirTowards(e, player);
-              e.movePersist = 12 + ((Math.random()*10)|0);
+            const dist = Math.hypot(player.x - e.x, player.y - e.y);
+            if (dist < TILE * 4) {
+              // 太近→侧移或后退
+              if (Math.random() < 0.6) {
+                e.aiDir = dirSideways(e, player);
+              } else {
+                e.aiDir = oppositeDir(dirTowards(e, player));
+              }
+              e.movePersist = 6 + ((Math.random()*6)|0);
             } else {
-              e.aiDir = dirSideways(e, player);
-              e.movePersist = 8 + ((Math.random()*8)|0);
+              // 合适距离→正常走位
+              if (Math.random() < 0.75) {
+                e.aiDir = dirTowards(e, player);
+                e.movePersist = 12 + ((Math.random()*10)|0);
+              } else {
+                e.aiDir = dirSideways(e, player);
+                e.movePersist = 8 + ((Math.random()*8)|0);
+              }
             }
           } else {
             const r = Math.random();
@@ -1466,6 +1478,11 @@
     const dx = t.x - e.x, dy = t.y - e.y;
     if (Math.abs(dx)>Math.abs(dy)) return Math.random()<0.5?'up':'down';
     return Math.random()<0.5?'left':'right';
+  }
+  // 返回相反方向
+  function oppositeDir(dir) {
+    const map = {up:'down', down:'up', left:'right', right:'left'};
+    return map[dir] || dir;
   }
   // 获取坦克前方1.5格的瓦片值（0=空地 1=砖 2=钢 3=基地 5=不可摧毁）
   function tileAhead(t) {
