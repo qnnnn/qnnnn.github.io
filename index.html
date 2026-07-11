@@ -331,6 +331,7 @@
   let playerHP=5, playerMaxHP=5;
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, waveSpawned=false;
   let keys = {}, respawnTimer = null, p2respawnTimer = null, airdropTimer = 0, lastTime = 0;
+  let playerInvTimer = 0;                       // 玩家复活无敌计时
   let hitStopTimer = 0;
   let enemiesKilledThisLevel = 0;
   const ICE_SLIDE_SPEED_FACTOR = 0.7;
@@ -613,6 +614,7 @@
     player = makeTank(true);
     player.x = 3 * TILE; player.y = (ROWS-3) * TILE;
     if (fullHP !== false) playerHP = playerMaxHP;
+    playerInvTimer = 90; // 1.5秒复活无敌
     updateHPDisplay();
     if (dualMode){
       for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=22;c<=23;c++) if (r>=0&&c>=0&&r<ROWS&&c<COLS&&map[r][c]===1) map[r][c]=0;
@@ -740,6 +742,7 @@
       e.x = x; e.y = spotsY;
       e.dir = 'down';
       enemies.push(e);
+      e.invTimer = 60; // 1秒出生无敌
       waveSpawned = true;
       return;
     }
@@ -897,6 +900,7 @@
     for (const e of enemies) {
       if (!e.alive) continue;
       if (freezeTimer > 0) continue;
+      if (e.invTimer > 0) e.invTimer -= dt;
       e.aiTimer-=dt;
       if (e.stuckFrames===undefined) e.stuckFrames=0;
       if (e.movePersist===undefined) e.movePersist=0;
@@ -1032,7 +1036,7 @@
       if (e.type === 'suicide' && e.alive) {
         let hit = false;
         if (player.alive && rectsOverlap(e, player)){
-          if (!cheatInvincible && shieldTimer <= 0){
+          if (!cheatInvincible && shieldTimer <= 0 && playerInvTimer <= 0){
             playerHP = Math.max(playerHP - 2, 0);
             updateHPDisplay();
             if (playerHP <= 0){
@@ -1273,6 +1277,7 @@
           b.dead=true; scoreEl.textContent=score; continue;
         }
         for (const e of enemies) if (e.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},e)){
+          if (e.invTimer > 0) { b.dead=true; explode(b.x,b.y,'#888'); break; }
           e.hp--;
           if (e.hp <= 0){ enemiesKilledThisLevel++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); score += 100; spawnDrop(e); hitStopTimer = 4;
             comboCount++; comboTimer = 180;
@@ -1290,8 +1295,8 @@
           continue;
         }
         if (player.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},player)){
-          if (cheatInvincible || shieldTimer > 0) {
-            b.dead=true; explode(b.x,b.y, cheatInvincible?'#ff0':'#4af');
+          if (cheatInvincible || shieldTimer > 0 || playerInvTimer > 0) {
+            b.dead=true; explode(b.x,b.y, playerInvTimer>0?'#ff0':cheatInvincible?'#ff0':'#4af');
             continue;
           }
           b.dead=true; sfx.hit();
@@ -1465,6 +1470,7 @@
 
     // 护盾/基地护盾/冰冻/穿甲弹倒计时
     if (shieldTimer > 0) shieldTimer-=dt;
+    if (playerInvTimer > 0) playerInvTimer-=dt;
     if (baseShieldTimer > 0) baseShieldTimer-=dt;
     if (freezeTimer > 0) freezeTimer-=dt;
     if (apBulletTimer > 0) apBulletTimer-=dt;
