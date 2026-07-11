@@ -945,6 +945,13 @@
         }
         e.dir = e.aiDir;
         e.aiTimer = e.movePersist;
+        // 避免重复选之前堵墙的方向
+        if (e.blockedDir && e.dir === e.blockedDir && e.stuckFrames === 0) {
+          const others = ['up','down','left','right'].filter(d=>d!==e.blockedDir);
+          e.dir = others[(Math.random()*others.length)|0];
+          e.aiDir = e.dir;
+          e.aiTimer = 10 + ((Math.random()*8)|0);
+        }
         e.stuckFrames = 0;
       }
       // 前方砖墙？开火击碎
@@ -956,7 +963,9 @@
       moveTank(e, dt);
       if (before.x===e.x && before.y===e.y) {
         e.stuckFrames++;
-        if (e.stuckFrames > 8) {
+        // 记录堵墙方向
+        if (e.stuckFrames === 1) e.blockedDir = e.dir;
+        if (e.stuckFrames > 6) {
           const ahead = tileAhead(e);
           const isHard = ahead === 2 || ahead === 5;
           const getTarget = () => {
@@ -964,31 +973,46 @@
             if (e.type === 'scout') return basePos;
             return (player&&player.alive?player:null);
           };
+          const isMovingVert = e.dir==='up'||e.dir==='down';
+          const perpDirs = isMovingVert ? ['left','right'] : ['up','down'];
+          const allOthers = ['up','down','left','right'].filter(d=>d!==e.dir);
+          
           if (isHard) {
-            // 钢墙→选绕路方向
-            const perpDirs = e.dir==='up'||e.dir==='down'?['left','right']:['up','down'];
-            e.dir = bestDir(perpDirs, e, getTarget());
-            e.aiDir = e.dir; e.aiTimer = 6+((Math.random()*8)|0);
+            // 钢墙→沿墙绕行，长时间坚持
+            const tgt = getTarget();
+            let next = bestDir(perpDirs, e, tgt);
+            // 试试这个方向能不能动
+            const testD = DIR[next];
+            const testX = e.x + testD.x * TILE, testY = e.y + testD.y * TILE;
+            const testAhead = tileAt(testX + e.w/2, testY + e.h/2);
+            if (testAhead === 1 || testAhead === 2 || testAhead === 5) {
+              // 首选被堵→换另一个垂直方向
+              next = next === perpDirs[0] ? perpDirs[1] : perpDirs[0];
+            }
+            e.dir = next; e.aiDir = next;
+            e.aiTimer = 25 + ((Math.random()*15)|0);       // 长时间坚持绕行
           } else if (e.stuckFrames > 15) {
-            // 严重卡死→先掉头再重定向
-            const opp = {up:'down',down:'up',left:'right',right:'left'}[e.dir];
+            // 严重卡死→反方向逃跑
+            const opp = oppositeDir(e.dir);
             e.dir = opp; e.aiDir = opp;
             moveTank(e, dt);
             if (before.x===e.x && before.y===e.y) {
-              // 还是卡→最宽方向
               e.dir = bestOpenDir(e);
-              e.aiDir = e.dir; e.aiTimer = 5;
-            } else { e.aiTimer = 8; }
+              e.aiDir = e.dir; e.aiTimer = 8;
+            } else { e.aiTimer = 20 + ((Math.random()*10)|0); }
           } else {
-            // 轻微卡→换垂直方向
-            const perp = e.dir==='up'||e.dir==='down'?['left','right']:['up','down'];
-            e.dir = perp[(Math.random()*2)|0]; e.aiDir = e.dir;
-            e.aiTimer = 4+((Math.random()*6)|0);
+            // 轻微卡→垂直绕开
+            const pick = allOthers[((Math.random()*allOthers.length)|0)];
+            e.dir = pick; e.aiDir = pick;
+            e.aiTimer = 10 + ((Math.random()*8)|0);
           }
           e.stuckFrames = 0;
         }
       } else {
-        if (e.stuckFrames > 0) e.stuckFrames = Math.max(0, e.stuckFrames-3);
+        if (e.stuckFrames > 0) {
+          e.stuckFrames = Math.max(0, e.stuckFrames-3);
+          if (e.stuckFrames === 0) e.blockedDir = null;
+        }
       }
       // 自爆兵：接触玩家或基地即爆炸
       if (e.type === 'suicide' && e.alive) {
