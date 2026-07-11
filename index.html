@@ -23,21 +23,12 @@
       radial-gradient(ellipse at 80% 20%, rgba(40,40,60,0.12) 0%, transparent 50%),
       repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.015) 2px, rgba(255,255,255,0.015) 4px);
   }
-  /* 道具拾取通知 */
-  #pickup-toasts {
-    position: fixed; right: 8px; top: 48px; z-index: 30;
-    display: flex; flex-direction: column; gap: 6px;
-    pointer-events: none;
+  /* 道具拾取通知（面板内） */
+  .pickup-notify {
+    font-size: 12px; padding: 3px 2px;
+    text-align: center;
+    transition: opacity 0.3s;
   }
-  .pickup-toast {
-    background: rgba(0,0,0,0.75); color: #fff; font-size: 12px;
-    padding: 5px 10px; border-radius: 4px;
-    border-left: 3px solid #6cff6c;
-    white-space: nowrap;
-    animation: toastIn 0.3s ease-out, toastOut 0.4s 1.6s ease-in forwards;
-  }
-  @keyframes toastIn { from { opacity:0; transform: translateX(30px); } to { opacity:1; transform: translateX(0); } }
-  @keyframes toastOut { to { opacity:0; transform: translateX(30px); } }
   .wrap {
     width: 100%;
     height: 100%;
@@ -222,7 +213,6 @@
 </head>
 <body>
 <div class="wrap">
-  <div id="pickup-toasts"></div>
   <div id="game">
     <canvas id="screen" width="416" height="512"></canvas>
     <div id="panel">
@@ -242,6 +232,7 @@
         </div>
         <div class="row" id="cheatRow" style="display:none"><span>作弊</span><span class="val" id="cheatLabel" style="color:#f44">无敌</span></div>
         <div class="row" id="p2lifeRow" style="display:none"><span>P2</span><span class="val" id="p2lives">3</span></div>
+        <div class="pickup-notify" id="pickupNotify" style="display:none"></div>
       </div>
       <div class="mute-icon" id="muteBox">
         <span id="muteLabel">🔊 开启</span>
@@ -1348,13 +1339,14 @@
     function showPickupToast(type) {
       const info = PICKUP_NAMES[type];
       if (!info) return;
-      const el = document.createElement('div');
-      el.className = 'pickup-toast';
+      const el = document.getElementById('pickupNotify');
+      if (!el) return;
       el.textContent = info[0];
-      el.style.borderLeftColor = info[1];
-      const container = document.getElementById('pickup-toasts');
-      container.appendChild(el);
-      setTimeout(() => { if (el.parentNode) el.remove(); }, 2100);
+      el.style.color = info[1];
+      el.style.display = 'block';
+      el.style.opacity = '1';
+      if (el._timer) clearTimeout(el._timer);
+      el._timer = setTimeout(() => { el.style.opacity = '0'; setTimeout(() => { if (el.style.opacity === '0') el.style.display = 'none'; }, 300); }, 1800);
     }
 
     // 拾取道具（玩家1）
