@@ -92,12 +92,6 @@
     border-top: 1px solid #333;
     margin-top: 4px; padding-top: 3px;
   }
-  .weapon-row {
-    display: flex; justify-content: space-between;
-    font-size: 10px; padding: 1px 0;
-  }
-  .wpn-val { color: #999; }
-  .wpn-val.active { color: #ffd24d; }
   .panel-hint {
     font-size: 10px;
     color: #555;
@@ -227,9 +221,11 @@
         <div class="row" id="comboRow" style="display:none"><span>连杀</span><span class="val" id="comboDisplay" style="color:#ff6644">×0</span></div>
         <div class="row"><span>血量</span><span class="val" id="hpDisplay">❤❤❤❤❤</span></div>
         <div class="row"><span>基地</span><span class="val" id="bufBase">❤❤❤❤❤</span></div>
-        <div class="panel-section">[ 武器状态 ]</div>
-        <div class="weapon-row"><span class="wpn-val" id="wpnBullet">○ 普通</span><span class="wpn-val" id="wpnShield">-</span></div>
-        <div class="weapon-row"><span class="wpn-val" id="wpnDouble">-</span><span class="wpn-val" id="wpnAp">-</span></div>
+        <div class="panel-section">武器</div>
+        <div class="row"><span>子弹</span><span class="val" id="wpnBullet">普通</span></div>
+        <div class="row"><span>护盾</span><span class="val" id="wpnShield">-</span></div>
+        <div class="row"><span>连射</span><span class="val" id="wpnDouble">-</span></div>
+        <div class="row" id="wpnApRow"><span>穿甲</span><span class="val" id="wpnAp">-</span></div>
         <div class="buff-row">
           <span class="buff-ind" id="bufShield">-</span>
           <span class="buff-ind" id="bufBullet">普通</span>
@@ -1437,14 +1433,14 @@
     bufFreezeEl.textContent = freezeTimer > 0 ? (Math.ceil(freezeTimer/60)+'秒') : '-';
     bufApEl.textContent = apBulletTimer > 0 ? (Math.ceil(apBulletTimer/60)+'秒') : '-';
     // 武器面板
-    wpnBullet.textContent = bulletUpgraded ? '🔥 强化弹' : '○ 普通弹';
-    wpnBullet.className = bulletUpgraded ? 'wpn-val active' : 'wpn-val';
-    wpnShield.textContent = shieldTimer > 0 ? ('🛡 ' + Math.ceil(shieldTimer/60) + 's') : '-';
-    wpnShield.className = shieldTimer > 0 ? 'wpn-val active' : 'wpn-val';
-    wpnDouble.textContent = doubleShot ? '💥 二连射' : '-';
-    wpnDouble.className = doubleShot ? 'wpn-val active' : 'wpn-val';
-    wpnAp.textContent = apBulletTimer > 0 ? ('⚡ ' + Math.ceil(apBulletTimer/60) + 's') : '-';
-    wpnAp.className = apBulletTimer > 0 ? 'wpn-val active' : 'wpn-val';
+    wpnBullet.textContent = bulletUpgraded ? '🔥 强化' : '普通';
+    wpnBullet.style.color = bulletUpgraded ? '#ffaa00' : '';
+    wpnShield.textContent = shieldTimer > 0 ? ('🛡 ' + Math.ceil(shieldTimer/60) + '秒') : '-';
+    wpnShield.style.color = shieldTimer > 0 ? '#44aaff' : '';
+    wpnDouble.textContent = doubleShot ? '💥 二连' : '-';
+    wpnDouble.style.color = doubleShot ? '#ff66aa' : '';
+    wpnAp.textContent = apBulletTimer > 0 ? ('⚡ ' + Math.ceil(apBulletTimer/60) + '秒') : '-';
+    wpnAp.style.color = apBulletTimer > 0 ? '#ffcc00' : '';
     // 连杀显示
     if (comboCount >= 2 && comboDisplayTimer > 0) {
       comboRow.style.display = '';
