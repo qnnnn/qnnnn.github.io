@@ -20,24 +20,32 @@
     height: 100%;
     position: relative;
     background:
-      /* Vignette — darken edges for cinematic depth */
+      /* Vignette */
       radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.55) 100%),
-      /* Green base glow — lower-left (home base) */
+      /* Green base glow — lower-left */
       radial-gradient(ellipse at 15% 85%, rgba(40,160,60,0.35) 0%, transparent 50%),
       /* Red enemy glow — upper-right */
       radial-gradient(ellipse at 85% 15%, rgba(180,40,40,0.3) 0%, transparent 45%),
-      /* Center ambient glow */
-      radial-gradient(ellipse at 50% 50%, rgba(60,120,60,0.12) 0%, transparent 60%),
-      /* Diagonal grid — primary direction (↘) */
-      repeating-linear-gradient(135deg, transparent, transparent 38px, rgba(100,180,100,0.14) 38px, rgba(100,180,100,0.14) 40px),
-      /* Diagonal grid — secondary direction (↗) */
-      repeating-linear-gradient(45deg, transparent, transparent 38px, rgba(100,160,100,0.11) 38px, rgba(100,160,100,0.11) 40px),
-      /* Horizontal grid lines */
-      repeating-linear-gradient(0deg, transparent, transparent 58px, rgba(100,180,100,0.08) 58px, rgba(100,180,100,0.08) 60px),
-      /* Vertical grid lines */
-      repeating-linear-gradient(90deg, transparent, transparent 58px, rgba(100,180,100,0.08) 58px, rgba(100,180,100,0.08) 60px),
-      /* Base dark color */
+      /* Center ambient */
+      radial-gradient(ellipse at 50% 50%, rgba(60,120,60,0.10) 0%, transparent 60%),
+      /* ── Pixel art grids ── */
+      /* 4px pixel grid (horizontal) */
+      linear-gradient(to bottom, rgba(100,180,100,0.12) 1px, transparent 1px),
+      /* 4px pixel grid (vertical) */
+      linear-gradient(to right, rgba(100,180,100,0.12) 1px, transparent 1px),
+      /* 2px dot texture */
+      radial-gradient(rgba(100,200,100,0.09) 0.5px, transparent 0.5px),
+      /* 8px block checker */
+      repeating-conic-gradient(rgba(80,140,80,0.04) 0 90deg, transparent 90deg 180deg) 0 0/8px 8px,
+      /* Base */
       #0d1117;
+    background-size:
+      auto, auto, auto, auto,
+      4px 4px,  /* grid */
+      4px 4px,  /* grid */
+      2px 2px,  /* dots */
+      8px 8px,  /* checker */
+      auto;
   }
   #game {
     display: inline-flex;
@@ -332,6 +340,7 @@
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, waveSpawned=false;
   let keys = {}, respawnTimer = null, p2respawnTimer = null, airdropTimer = 0, lastTime = 0;
   let playerInvTimer = 0;                       // 玩家复活无敌计时
+  let levelIntroTimer = 0;                       // 关卡过场动画计时
   let hitStopTimer = 0;
   let enemiesKilledThisLevel = 0;
   const ICE_SLIDE_SPEED_FACTOR = 0.7;
@@ -846,6 +855,7 @@
   function update(dt) {
     if (paused || !running) return;
     if (hitStopTimer > 0) { hitStopTimer -= dt; }
+    if (levelIntroTimer > 0) levelIntroTimer -= dt;
 
     if (player.alive) {
       const p1OnIce = tileAt(player.x+8, player.y+8) === 6;
@@ -1577,6 +1587,7 @@
     p1SlideTimer = 0; p1SlideDir = null; p1SlideSpeed = 0; p2SlideTimer = 0; p2SlideDir = null; p2SlideSpeed = 0;
     comboCount = 0; comboTimer = 0; comboDisplayTimer = 0;
     spawnTimer = endlessMode ? 120 : 0; waveSpawned = false; airdropTimer = 0;
+    levelIntroTimer = 90; // 1.5秒关卡过场
     if (level % 5 === 0){
       generateBossArena();
       spawnPlayer(false); spawnAlly();
@@ -1835,6 +1846,20 @@
       ctx.textAlign = 'right';
       ctx.fillText('x' + comboCount + ' COMBO!', W-10, 25);
     }
+    // 关卡过场文字
+    if (levelIntroTimer > 0){
+      const alpha = levelIntroTimer > 60 ? 1 : levelIntroTimer / 60;
+      const yOff = levelIntroTimer > 70 ? (70 - levelIntroTimer) * 3 : 0;
+      ctx.fillStyle = 'rgba(0,0,0,' + (alpha * 0.5) + ')';
+      ctx.fillRect(0, 0, W, H);
+      const modeLabel = endlessMode ? 'WAVE' : 'LEVEL';
+      ctx.font = 'bold 18px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,210,77,' + alpha + ')';
+      ctx.fillText(modeLabel, W/2, H/2 - 18 + yOff);
+      ctx.font = 'bold 28px monospace';
+      ctx.fillText(level, W/2, H/2 + 16 + yOff);
+    }
     // 关卡主题色
     if (level >= 4){
       let theme = '';
@@ -1870,6 +1895,7 @@
     document.getElementById('levelLabel').textContent = endlessMode ? '波次' : '关卡';
     emptyMap(); spawnPlayer();
     spawnTimer = endlessMode ? 120 : 0;
+    levelIntroTimer = 90; // 开局过场
     scoreEl.textContent=score; levelEl.textContent=level; livesEl.textContent=lives;
     p2livesEl.textContent=p2lives;
     p2lifeRow.style.display = dualMode ? 'flex' : 'none';
