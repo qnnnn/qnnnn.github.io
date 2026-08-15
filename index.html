@@ -121,8 +121,15 @@
     text-align: center;
     padding: 2px 0;
   }
-  .keys { font-size: 12px; line-height: 1.8; color: #9ad; }
+  .keys { font-size: 12px; line-height: 1.9; color: #9ad; }
   .key { color: #fff; background: #333; padding: 1px 5px; border-radius: 2px; }
+  .key-row { display: flex; justify-content: space-between; align-items: center; }
+  .key-row .kbd { white-space: nowrap; }
+  .key-row .desc { color: #9ad; }
+  #keysBox { border: 2px solid #444; padding: 8px; background: #151515; }
+  #keysBox h3 { color: #6cff6c; font-size: 13px; margin-bottom: 6px; }
+  .p2-hint { font-size: 11px; color: #8ab; margin-top: 4px; }
+  .is-touch #keysBox { display: none !important; }
   #overlay {
     position: absolute;
     inset: 0;
@@ -264,6 +271,13 @@
         <div class="row" id="cheatRow" style="display:none"><span>作弊</span><span class="val" id="cheatLabel" style="color:#f44">无敌</span></div>
         <div class="row" id="p2lifeRow" style="display:none"><span>P2</span><span class="val" id="p2lives">3</span></div>
         <div class="pickup-notify" id="pickupNotify" style="display:none"></div>
+      </div>
+      <div class="box" id="keysBox">
+        <h3>操作</h3>
+        <div class="key-row"><span class="kbd"><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span></span><span class="desc">移动</span></div>
+        <div class="key-row"><span class="kbd"><span class="key">J</span> / <span class="key">空格</span></span><span class="desc">开炮</span></div>
+        <div class="key-row"><span class="kbd"><span class="key">P</span> 暂停 · <span class="key">M</span> 菜单 · <span class="key">R</span> 重试</span></div>
+        <div class="p2-hint" id="p2keys" style="display:none">双人：<span class="key">↑↓←→</span> 移动 &nbsp; <span class="key">K</span> 开炮</div>
       </div>
       <div class="mute-icon" id="muteBox">
         <span id="muteLabel">🔊 开启</span>
@@ -2274,6 +2288,7 @@
     scoreEl.textContent=score; levelEl.textContent=level; livesEl.textContent=lives;
     p2livesEl.textContent=p2lives;
     p2lifeRow.style.display = dualMode ? 'flex' : 'none';
+    document.getElementById('p2keys').style.display = dualMode ? 'block' : 'none';
     document.getElementById('btnResume').style.display = 'none';
     overlay.classList.add('hidden');
     bgmPlay();
