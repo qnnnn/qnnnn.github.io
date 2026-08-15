@@ -157,6 +157,42 @@
     letter-spacing: 2px;
   }
   .btn:hover { background: #ffe27a; }
+  .btn.btn-ghost { background: #2a2a2a; color: #9ad; border: 1px solid #555; font-size: 13px; padding: 6px 16px; margin-top: 4px; }
+  .btn.btn-ghost:hover { background: #3a3a4a; color: #cdf; }
+
+  /* 更新日志弹窗 */
+  #changelogOverlay {
+    position: absolute; inset: 0; z-index: 30;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.7);
+  }
+  #changelogOverlay.open { display: flex; }
+  #changelogBox {
+    width: min(420px, 92vw);
+    max-height: 70vh;
+    background: #1a1a1a;
+    border: 2px solid #555;
+    border-radius: 4px;
+    padding: 14px 16px;
+    display: flex; flex-direction: column;
+    font-family: "Courier New", monospace;
+  }
+  #changelogBox h2 { color: #ffd24d; font-size: 18px; margin-bottom: 10px; letter-spacing: 2px; }
+  #changelogList { overflow-y: auto; flex: 1; padding-right: 4px; }
+  .cl-item { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed #333; }
+  .cl-item:last-child { border-bottom: none; }
+  .cl-ver { color: #6cff6c; font-size: 13px; font-weight: bold; }
+  .cl-date { color: #666; font-size: 10px; margin-left: 6px; }
+  .cl-tags { margin: 3px 0; }
+  .cl-tag { display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 2px; margin-right: 4px; }
+  .cl-tag.t-new { background: #2a5a2a; color: #8f8; }
+  .cl-tag.t-fix { background: #5a4a1a; color: #fd8; }
+  .cl-tag.t-perf { background: #1a3a5a; color: #8cf; }
+  .cl-tag.t-ai { background: #4a2a5a; color: #d8f; }
+  .cl-tag.t-other { background: #333; color: #aaa; }
+  .cl-desc { color: #ccc; font-size: 12px; line-height: 1.7; }
+  .cl-desc li { margin-left: 16px; }
+  .cl-close { margin-top: 10px; align-self: center; }
   .hidden { display: none !important; }
   .wrap { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
 
@@ -294,6 +330,15 @@
       <button class="btn" id="btnEndless">生存模式</button>
       <button class="btn" id="btnResume" style="display:none;background:#44aaff;color:#fff;">继续游戏</button>
       <button class="btn" id="btnRetry" style="display:none;background:#ff6c6c;color:#fff;">重新本关</button>
+      <button class="btn btn-ghost" id="btnChangelog">📜 更新日志</button>
+    </div>
+  </div>
+  <!-- 更新日志弹窗 -->
+  <div id="changelogOverlay">
+    <div id="changelogBox">
+      <h2>📜 更新日志</h2>
+      <div id="changelogList"></div>
+      <button class="btn btn-ghost cl-close" id="btnChangelogClose">关闭</button>
     </div>
   </div>
   <div id="upgradeOverlay" class="hidden" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:rgba(0,0,0,0.85);z-index:20;text-align:center;">
@@ -2298,6 +2343,97 @@
   btn1p.addEventListener('click', ()=>startGame('single'));
   btn2p.addEventListener('click', ()=>startGame('dual'));
   btnEndless.addEventListener('click', ()=>startGame('endless'));
+
+  // ===== 更新日志 =====
+  const CHANGELOG = [
+    {
+      ver: 'v1.10', date: '2026-07-11',
+      tags: [['new','新增'],['other','界面']],
+      desc: [
+        '右侧面板新增操作键位说明（移动/开炮/暂停菜单，双人模式显示 P2 键位）',
+        '加入更新日志查看（主菜单 📜 按钮）',
+      ],
+    },
+    {
+      ver: 'v1.9', date: '2026-07-11',
+      tags: [['new','玩法'],['perf','优化']],
+      desc: [
+        '道具改为次数制：护盾/基地护盾/穿甲/加速/三连发/激光/双倍得分可叠加，用完即止，无时间限制',
+        '敌人生成改配额制：场上数量无上限，按时间持续生成，出完本关配额即止',
+      ],
+    },
+    {
+      ver: 'v1.8', date: '2026-07-11',
+      tags: [['new','玩法'],['perf','优化'],['ai','AI']],
+      desc: [
+        '性能优化：静态地图离屏预渲染 + DOM 脏检查，帧率大幅提升',
+        '背景音乐重做：芯片音乐引擎（旋律+贝斯+鼓点双主题），全部音效重制',
+        '新增 5 种强化道具：加速/三连发/激光速射/双倍得分/加命',
+        '本关惩罚系统：第 5 关起随机 debuff（减速/反向/致盲/失血/易伤），越靠后越难',
+        'AI 队友改为基地守卫：环形巡逻，只拦截威胁基地的敌人',
+      ],
+    },
+    {
+      ver: 'v1.7', date: '2026-07-10',
+      tags: [['new','玩法']],
+      desc: [
+        '复活无敌：玩家 1.5 秒、敌人 1 秒，子弹/自爆撞击无效，带闪光特效',
+        '像素背景重绘（4px 网格 + 2px 点阵）',
+        '开局过场 LEVEL X 文字（1.5 秒淡入淡出）',
+      ],
+    },
+    {
+      ver: 'v1.6', date: '2026-07-10',
+      tags: [['new','玩法'],['ai','AI']],
+      desc: [
+        'AI 智能寻路：遇砖墙开火击碎、遇钢墙立即绕路',
+        'AI 绕墙强化：堵墙后坚持 25-40 帧、blockedDir 记忆防止回头、垂直方向预检',
+        '普通敌人保持距离：4 格内后撤/侧移，4 格外正常走位',
+        'AI 队友同逻辑（视线追踪 + 方向持久 + 三级卡死处理）',
+      ],
+    },
+    {
+      ver: 'v1.5', date: '2026-07-10',
+      tags: [['new','玩法'],['other','界面']],
+      desc: [
+        '页面背景美化：深色渐变纹理 + 军事网格',
+        '吃道具右侧弹出文字反馈（匹配道具颜色，滑入淡出）',
+        '面板武器区布局重做，道具通知移到面板内部',
+        '修复：冰冻道具不再冻结 AI 队友，只冻敌人和 Boss',
+      ],
+    },
+    {
+      ver: 'v1.4', date: '2026-07-10',
+      tags: [['new','玩法'],['other','手机']],
+      desc: [
+        '手机端：去掉可见摇杆，改为滑动操控 + 操作提示',
+        'AI/盟友/Boss 射击加视线检测，防穿墙',
+        '手机 HUD 栏右侧留白，防止基地血量 UI 被静音按钮遮挡',
+      ],
+    },
+  ];
+  const clOverlay = document.getElementById('changelogOverlay');
+  const clList = document.getElementById('changelogList');
+  function renderChangelog(){
+    clList.innerHTML = '';
+    for (const item of CHANGELOG){
+      const div = document.createElement('div');
+      div.className = 'cl-item';
+      const tagsHtml = item.tags.map(([cls,label]) => '<span class="cl-tag t-'+cls+'">'+label+'</span>').join('');
+      const descHtml = item.desc.map(d => '<li>'+d+'</li>').join('');
+      div.innerHTML =
+        '<div class="cl-ver">'+item.ver+'<span class="cl-date">'+item.date+'</span></div>' +
+        '<div class="cl-tags">'+tagsHtml+'</div>' +
+        '<ul class="cl-desc">'+descHtml+'</ul>';
+      clList.appendChild(div);
+    }
+    clList.scrollTop = 0;
+  }
+  function openChangelog(){ renderChangelog(); clOverlay.classList.add('open'); }
+  function closeChangelog(){ clOverlay.classList.remove('open'); }
+  document.getElementById('btnChangelog').addEventListener('click', openChangelog);
+  document.getElementById('btnChangelogClose').addEventListener('click', closeChangelog);
+  clOverlay.addEventListener('click', e => { if (e.target === clOverlay) closeChangelog(); });
 
   function gameOver(win){
     lastTime = 0; running=false; document.body.classList.remove('running'); bgmStop(); shakeTimer = 0;
