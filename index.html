@@ -461,6 +461,7 @@
   let totalKills = 0, maxCombo = 0; // 生涯统计
   let highScore = 0; // 最高分（localStorage 持久化）
   try { highScore = parseInt(localStorage.getItem('battlecity_highscore') || '0', 10) || 0; } catch(_) {}
+  let waveBonus = null; // 无尽模式波次奖励描述（升级界面显示）
   // 主菜单显示最高分（HTML 初始文案由 JS 补上）
   function renderMenuHighScore(){
     const ov = document.getElementById('ovText');
@@ -675,6 +676,39 @@
       for (let i=0;i<5;i++){ const r=25+((Math.random()*3)|0),c=5+((Math.random()*16)|0); if (map[r][c]===0) map[r][c]=4; }
       // Ice patches on left/right edges
       for (let r=10;r<=18;r++){ if (map[r][3]===0) map[r][3]=6; if (map[r][22]===0) map[r][22]=6; }
+    },
+    // 6: Maze — serpentine brick corridors, steel anchors, water pockets
+    function(){
+      // Serpentine vertical brick walls (3 segments, offset gaps)
+      for (let seg=0;seg<3;seg++){
+        const baseR = 5 + seg*8;
+        const offset = seg%2===0 ? 4 : 14;
+        for (let r=baseR;r<baseR+5;r++) for (let c=offset;c<offset+3;c++) if (map[r][c]===0) map[r][c]=1;
+      }
+      // Steel anchors at corridor bends
+      map[7][6]=2; map[7][19]=2; map[15][6]=2; map[15][19]=2;
+      // Water pockets mid-left/right
+      for (let i=0;i<3;i++){ const r=10+((Math.random()*12)|0); if (map[r][4]===0) map[r][4]=5; if (map[r][21]===0) map[r][21]=5; }
+      // Ice strip across middle
+      for (let c=9;c<=16;c++) if (map[14][c]===0) map[14][c]=6;
+      // Grass near center
+      for (let i=0;i<6;i++){ const r=10+((Math.random()*10)|0),c=9+((Math.random()*8)|0); if (map[r][c]===0) map[r][c]=4; }
+    },
+    // 7: Crossfire — open center, brick walls flanking, steel X mid-field
+    function(){
+      // Two long horizontal brick walls
+      for (let c=4;c<=21;c++){ if (map[9][c]===0) map[9][c]=1; if (map[20][c]===0) map[20][c]=1; }
+      // Gaps in walls
+      map[9][7]=0; map[9][18]=0; map[20][7]=0; map[20][18]=0;
+      // Steel X in center
+      for (let i=-2;i<=2;i++){
+        if (map[14+i][12+i]===0) map[14+i][12+i]=2;
+        if (map[14+i][14-i]===0) map[14+i][14-i]=2;
+      }
+      // Water corners
+      map[3][3]=5; map[3][22]=5; map[26][3]=5; map[26][22]=5;
+      // Grass patches
+      for (let i=0;i<8;i++){ const r=5+((Math.random()*20)|0),c=3+((Math.random()*20)|0); if (map[r][c]===0) map[r][c]=4; }
     },
   ];
 
@@ -1839,6 +1873,24 @@
         upgradePending = true;
         paused = true;
         sfx.level();
+        // 无尽模式波次奖励：随机道具次数 + 分数
+        if (endlessMode){
+          const bonusPool = ['shield','apbullet','speed','triple','laser','score','baseshield','medkit'];
+          const bt = bonusPool[(Math.random()*bonusPool.length)|0];
+          const names = { shield:'护盾', apbullet:'穿甲', speed:'加速', triple:'三连发', laser:'激光', score:'双倍得分', baseshield:'基地护盾', medkit:'回血' };
+          const n = 1 + (level>3 ? 1 : 0);
+          waveBonus = '🎁 波次奖励：' + names[bt] + ' ×' + n;
+          if (bt === 'shield') shieldCharges += n;
+          else if (bt === 'apbullet') apCharges += n;
+          else if (bt === 'speed') speedCharges += n;
+          else if (bt === 'triple') tripleCharges += n;
+          else if (bt === 'laser') laserCharges += n;
+          else if (bt === 'score') scoreCharges += n;
+          else if (bt === 'baseshield') baseShieldCharges += n;
+          else if (bt === 'medkit') playerHP = Math.min(playerHP + 1, playerMaxHP);
+        } else {
+          waveBonus = null;
+        }
         showUpgradeScreen();
       }
     }
@@ -2552,6 +2604,17 @@
       ctx.lineWidth = 2;
       ctx.strokeRect(7, 7, W-14, H-14);
     }
+    // 基地危机警示（基地 HP<=2 时橙色脉动边框）
+    if (base && base.alive && base.hp <= 2 && baseShieldCharges <= 0){
+      const pulse = (Math.sin(Date.now()/260) + 1) / 2;
+      ctx.strokeStyle = 'rgba(255,170,40,' + (0.25 + pulse*0.35) + ')';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(1, 1, W-2, H-2);
+      // 基地闪烁提示
+      const bx = base.c*TILE, by = base.r*TILE;
+      ctx.fillStyle = 'rgba(255,80,20,' + (0.2 + pulse*0.4) + ')';
+      ctx.fillRect(bx-1, by-1, TILE+2, TILE+2);
+    }
     // Boss 出场警告横幅
     if (bossWarn > 0){
       const blink = Math.floor(bossWarn/8) % 2 === 0;
@@ -2636,6 +2699,16 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.16', date: '2026-08-15',
+      tags: [['new','玩法'],['other','界面']],
+      desc: [
+        '无尽模式波次奖励：清场后随机道具次数 + 升级界面显示',
+        '新增 2 张地图：迷宫（蛇形砖墙+钢锚点）与交叉火力（钢 X 中央）',
+        '升级界面显示已拥有的永久升级',
+        '基地危机警示：基地血量≤2 时橙色脉动边框',
+      ],
+    },
     {
       ver: 'v1.15', date: '2026-08-15',
       tags: [['new','玩法'],['ai','AI']],
@@ -2864,6 +2937,27 @@
       upgrades.push({id:'heal', label:'❤️‍🩹 回血', desc:'血量回满（'+playerHP+'→'+playerMaxHP+'）', fn:()=>{ playerHP = playerMaxHP; }});
     }
     opts.innerHTML = '';
+    // 波次奖励提示（无尽模式）
+    if (waveBonus){
+      const b = document.createElement('div');
+      b.style.cssText = 'color:#ffd24d;font-size:13px;margin-bottom:6px;';
+      b.textContent = waveBonus;
+      opts.appendChild(b);
+    }
+    // 已拥有的永久升级
+    const owned = [];
+    if (permFire) owned.push('🔥 火力');
+    if (permDouble) owned.push('💥 双发');
+    if (permShield > 0) owned.push('🛡×'+permShield);
+    if (permHP > 0) owned.push('❤+'+permHP);
+    if (permLives > 0) owned.push('✚'+permLives);
+    if (permSpeed > 0) owned.push('⚡+'+permSpeed);
+    if (owned.length){
+      const b = document.createElement('div');
+      b.style.cssText = 'color:#6cff6c;font-size:11px;margin-bottom:10px;';
+      b.textContent = '已拥有：' + owned.join(' ');
+      opts.appendChild(b);
+    }
     for (const u of upgrades){
       const b = document.createElement('button');
       b.className = 'btn';
