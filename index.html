@@ -962,8 +962,29 @@
 
   function moveTank(t, dt) {
     const d = DIR[t.dir];
-    const nx = t.x + d.x*t.speed*dt, ny = t.y + d.y*t.speed*dt;
-    if (canMove(t, nx, ny)) { t.x = nx; t.y = ny; }
+    const step = t.speed * dt;
+    let nx = t.x + d.x * step, ny = t.y + d.y * step;
+    // 窄通道对齐：沿 x 移动时把 y 吸附到最近格线（反之亦然）。
+    // 坦克与格子等宽(16px)，若位置偏 1~2px，1 格通道四角会同时擦墙卡死。
+    const SNAP = 4; // 容差：距格线 4px 内直接对齐
+    if (d.x !== 0) {
+      const sy = Math.round(t.y / TILE) * TILE;
+      if (Math.abs(t.y - sy) <= SNAP) ny = sy;
+    } else if (d.y !== 0) {
+      const sx = Math.round(t.x / TILE) * TILE;
+      if (Math.abs(t.x - sx) <= SNAP) nx = sx;
+    }
+    if (canMove(t, nx, ny)) { t.x = nx; t.y = ny; return true; }
+    // 主方向被挡 → 沿墙滑动：只应用能动的轴（贴墙走更顺，不易卡角）
+    let moved = false;
+    if (d.x !== 0) {
+      if (canMove(t, nx, t.y)) { t.x = nx; moved = true; }
+      else if (canMove(t, t.x + d.x*step, t.y)) { t.x += d.x*step; moved = true; }
+    } else if (d.y !== 0) {
+      if (canMove(t, t.x, ny)) { t.y = ny; moved = true; }
+      else if (canMove(t, t.x, t.y + d.y*step)) { t.y += d.y*step; moved = true; }
+    }
+    return moved;
   }
 
   // 视线检测：两点之间是否有砖/钢墙阻挡
@@ -1197,6 +1218,25 @@
         }
         e.dir = e.aiDir;
         e.aiTimer = e.movePersist;
+        // 硬障碍预检（钢墙/水）：选定方向前先看前方 1 格，堵了立即换垂直方向，
+        // 避免撞墙后等 stuckFrames 才转向（砖墙可击碎，不预检）
+        if (e.type !== 'scout') {
+          const aheadTile = tileAhead(e);
+          if (aheadTile === 2 || aheadTile === 5) {
+            const isMovingVert = e.dir==='up'||e.dir==='down';
+            const perpDirs = isMovingVert ? ['left','right'] : ['up','down'];
+            const tgt = e.type === 'suicide' ? (player&&player.alive?player:basePos) : (player&&player.alive?player:null);
+            let next = bestDir(perpDirs, e, tgt);
+            // 验证该方向前方无硬障碍，堵了换另一个
+            const testD = DIR[next];
+            const testTile = tileAt(e.x + e.w/2 + testD.x * TILE, e.y + e.h/2 + testD.y * TILE);
+            if (testTile === 2 || testTile === 5) {
+              next = next === perpDirs[0] ? perpDirs[1] : perpDirs[0];
+            }
+            e.dir = next; e.aiDir = next;
+            e.aiTimer = 10 + ((Math.random()*10)|0);
+          }
+        }
         // 避免重复选之前堵墙的方向
         if (e.blockedDir && e.dir === e.blockedDir && e.stuckFrames === 0) {
           const others = ['up','down','left','right'].filter(d=>d!==e.blockedDir);
