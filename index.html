@@ -218,10 +218,14 @@
     display: flex; flex-shrink: 0; height: 145px;
     justify-content: flex-end; align-items: flex-end;
     padding: 0 20px 14px;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
     background: transparent; z-index: 10;
     pointer-events: none;
   }
   .is-touch #touch-controls > * { pointer-events: auto; }
+  .fire-btn:active { transform: scale(0.92); }
+  .tc-pause:active { background: rgba(255,255,255,0.25); }
+  .fire-btn, .tc-pause { transition: transform 0.06s, background 0.06s; }
   .is-touch #panel {
     position: fixed; top: 0; left: 0; right: 0;
     width: 100%; flex-direction: row; flex-wrap: wrap;
@@ -239,6 +243,9 @@
   .is-touch #btn2p, .is-touch #btnEndless { display: none; }
   .is-touch #overlay p br:first-child { display: none; }
   .is-touch #overlay p .pc-only { display: none; }
+  .is-touch #upgradeOptions { width: 92%; }
+  .is-touch #upgradeOptions .btn { width: 100%; margin: 2px 0 !important; font-size: 14px; }
+  .is-touch #overlay .btn { padding: 10px 18px; font-size: 14px; }
   .touch-hint {
     display: none;
     font-size: 11px; color: rgba(255,255,255,0.35);
@@ -264,13 +271,36 @@
   }
   .fire-btn.active { background: rgba(255,60,60,0.5); border-color: rgba(255,60,60,0.8); }
   .tc-pause {
-    width: 44px; height: 44px;
+    width: 48px; height: 48px;
     border-radius: 10px;
-    background: rgba(255,255,255,0.1);
-    border: 2px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.12);
+    border: 2px solid rgba(255,255,255,0.25);
     display: flex; align-items: center; justify-content: center;
-    font-size: 20px; color: rgba(255,255,255,0.6);
+    font-size: 20px; color: rgba(255,255,255,0.7);
     touch-action: none;
+  }
+  /* 虚拟摇杆（滑动操控时显示） */
+  #virtualJoy {
+    display: none;
+    position: fixed; left: 0; top: 0;
+    width: 110px; height: 110px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.08);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 9;
+    box-sizing: border-box;
+  }
+  #virtualJoy.active { display: block; }
+  #virtualThumb {
+    position: absolute; left: 50%; top: 50%;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+    border: 2px solid rgba(255,255,255,0.6);
+    transform: translate(-50%, -50%);
+    box-sizing: border-box;
   }
 </style>
 </head>
@@ -283,7 +313,7 @@
       <div class="box">
         <div class="row"><span>得分</span><span class="val" id="score">0</span></div>
         <div class="row"><span id="levelLabel">关卡</span><span class="val"><span id="level">1</span> · ❤<span id="lives">3</span></span></div>
-        <div class="row"><span>敌军</span><span class="val" id="enemies">0</span></div>
+        <div class="row"><span>敌军</span><span class="val" id="enemies">0</span><span class="val" id="enemiesProgress" style="color:#6cff6c;font-size:11px;"></span></div>
         <div class="row" id="comboRow" style="display:none"><span>连杀</span><span class="val" id="comboDisplay" style="color:#ff6644">×0</span></div>
         <div class="row"><span>血量</span><span class="val" id="hpDisplay">❤❤❤❤❤</span></div>
         <div class="row"><span>基地</span><span class="val" id="bufBase">❤❤❤❤❤</span></div>
@@ -351,9 +381,11 @@
     <div class="fire-wrap">
       <div class="fire-btn" id="btnFire">开火</div>
       <div class="tc-pause" id="btnPause">⏸</div>
-      <div class="tc-pause" id="btnMenu" style="margin-top:4px;width:52px;height:30px;font-size:11px;">主菜单</div>
+      <div class="tc-pause" id="btnMenu" style="margin-top:4px;width:56px;height:34px;font-size:11px;">主菜单</div>
     </div>
   </div>
+  <!-- 虚拟摇杆（滑动时显示） -->
+  <div id="virtualJoy"><div id="virtualThumb"></div></div>
   <!-- 触屏控制提示 -->
   <div class="touch-hint">左屏幕滑动移动 · 右按钮射击</div>
 </div>
@@ -377,6 +409,7 @@
   const levelEl = document.getElementById('level');
   const livesEl = document.getElementById('lives');
   const enemiesEl = document.getElementById('enemies');
+  const enemiesProgressEl = document.getElementById('enemiesProgress');
   const bufShieldEl = document.getElementById('bufShield');
   const bufBulletEl = document.getElementById('bufBullet');
   const bufDoubleEl = document.getElementById('bufDouble');
@@ -414,7 +447,7 @@
   let player, player2, enemies, bullets, base, particles, pickups, boss, ally;
   let score=0, level=1, lives=3, p2lives=3, running=false, paused=false, spawnTimer=0, pickupTimer=0;
   let bulletUpgraded=false, doubleShot=false, freezeTimer=0, allyRespawnTimer=0, shakeTimer=0, shakeIntensity=0;
-  let permHP=0, permLives=0, permSpeed=0;
+  let permHP=0, permLives=0, permSpeed=0, permFire=false, permDouble=false, permShield=0;
   let playerHP=5, playerMaxHP=5;
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, waveSpawned=false;
   let keys = {}, respawnTimer = null, p2respawnTimer = null, airdropTimer = 0, lastTime = 0;
@@ -423,6 +456,9 @@
   let hitStopTimer = 0;
   let enemiesKilledThisLevel = 0;
   let enemiesSpawned = 0, enemiesTotal = 20; // 本关已生成/需生成总数（配额制）
+  let dmgFlash = 0;   // 玩家受击红闪计时（帧）
+  let bossWarn = 0;   // Boss 出场警告计时
+  let totalKills = 0, maxCombo = 0; // 生涯统计
   const ICE_SLIDE_SPEED_FACTOR = 0.7;
   const ICE_SLIDE_DURATION = 8;
   let p1SlideTimer = 0, p1SlideDir = null, p1SlideSpeed = 0;
@@ -728,6 +764,8 @@
       moveTimer: 0, moveDir: null, enraged: false,
       phaseTriggered: false, phaseBurstCooldown: 0, phaseFlash: 0
     };
+    bossWarn = 60; // Boss 出场警告横幅
+    shake(6, 2);
   }
 
   function makeTank(isPlayer, enemyType) {
@@ -1078,6 +1116,13 @@
     if (scoreCharges > 0){ scoreCharges--; n *= 2; }
     score += n;
     scoreEl.textContent = score;
+    return n;
+  }
+  // 飘字系统（打击感反馈：+分数 / 提示文字在画布上漂浮）
+  let floaters = [];
+  function addFloater(x, y, text, color, size){
+    if (floaters.length > 24) floaters.shift();
+    floaters.push({ x, y, text, color: color||'#fff', size: size||9, life: 45, vy: -0.6 });
   }
 
   function update(dt) {
@@ -1105,10 +1150,14 @@
         const reversed = levelDebuffs.includes('reverse');
         const upK = reversed ? 's' : 'w', downK = reversed ? 'w' : 's';
         const leftK = reversed ? 'd' : 'a', rightK = reversed ? 'a' : 'd';
-        if (keys[upK]) { player.dir='up'; moveTank(player, dt*spdF); }
-        else if (keys[downK]) { player.dir='down'; moveTank(player, dt*spdF); }
-        else if (keys[leftK]) { player.dir='left'; moveTank(player, dt*spdF); }
-        else if (keys[rightK]) { player.dir='right'; moveTank(player, dt*spdF); }
+        // 支持斜向：水平+垂直同时移动，对角速度归一化(×0.707)
+        const hMove = keys[leftK] || keys[rightK];
+        const vMove = keys[upK] || keys[downK];
+        const mv = dt * spdF * ((hMove && vMove) ? 0.707 : 1);
+        if (keys[leftK]) { player.dir='left'; moveTank(player, mv); }
+        else if (keys[rightK]) { player.dir='right'; moveTank(player, mv); }
+        if (keys[upK]) { player.dir='up'; moveTank(player, mv); }
+        else if (keys[downK]) { player.dir='down'; moveTank(player, mv); }
         if (p1OnIce) { p1SlideDir = player.dir; p1SlideSpeed = player.speed * ICE_SLIDE_SPEED_FACTOR; }
       } else if (p1OnIce && p1SlideDir) {
         p1SlideTimer = ICE_SLIDE_DURATION;
@@ -1135,10 +1184,14 @@
         const reversed = levelDebuffs.includes('reverse');
         const upK = reversed ? 'ArrowDown' : 'ArrowUp', downK = reversed ? 'ArrowUp' : 'ArrowDown';
         const leftK = reversed ? 'ArrowRight' : 'ArrowLeft', rightK = reversed ? 'ArrowLeft' : 'ArrowRight';
-        if (keys[upK]) { player2.dir='up'; moveTank(player2, dt*spdF2); }
-        else if (keys[downK]) { player2.dir='down'; moveTank(player2, dt*spdF2); }
-        else if (keys[leftK]) { player2.dir='left'; moveTank(player2, dt*spdF2); }
-        else if (keys[rightK]) { player2.dir='right'; moveTank(player2, dt*spdF2); }
+        // 支持斜向：水平+垂直同时移动，对角速度归一化(×0.707)
+        const hMove2 = keys[leftK] || keys[rightK];
+        const vMove2 = keys[upK] || keys[downK];
+        const mv2 = dt * spdF2 * ((hMove2 && vMove2) ? 0.707 : 1);
+        if (keys[leftK]) { player2.dir='left'; moveTank(player2, mv2); }
+        else if (keys[rightK]) { player2.dir='right'; moveTank(player2, mv2); }
+        if (keys[upK]) { player2.dir='up'; moveTank(player2, mv2); }
+        else if (keys[downK]) { player2.dir='down'; moveTank(player2, mv2); }
         if (p2OnIce) { p2SlideDir = player2.dir; p2SlideSpeed = player2.speed * ICE_SLIDE_SPEED_FACTOR; }
       } else if (p2OnIce && p2SlideDir) {
         p2SlideTimer = ICE_SLIDE_DURATION;
@@ -1313,6 +1366,7 @@
           if (shieldCharges > 0){ shieldCharges--; explode(e.x+e.w/2,e.y+e.h/2,'#4af'); }
           else if (!cheatInvincible && playerInvTimer <= 0){
             playerHP = Math.max(playerHP - (levelDebuffs.includes('vuln') ? 4 : 2), 0); // 易伤惩罚：双倍
+            dmgFlash = 18; // 受击红闪
             updateHPDisplay();
             if (playerHP <= 0){
                explode(player.x+player.w/2,player.y+player.h/2,player.color);
@@ -1597,7 +1651,9 @@
             boss.alive = false;
             explode(boss.x+boss.w/2,boss.y+boss.h/2,'#ff0',true);
             hitStopTimer = 8;
-            addScore(500 + level * 100);
+            const pts = addScore(500 + level * 100);
+            addFloater(boss.x+16, boss.y-4, '+'+pts, '#ffd24d', 12);
+            addFloater(boss.x+16, boss.y+12, 'BOSS 击破!', '#ff6644', 11);
           } else {
             explode(b.x,b.y,'#ff0');
             addScore(20);
@@ -1607,8 +1663,10 @@
         for (const e of enemies) if (e.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},e)){
           if (e.invTimer > 0) { b.dead=true; explode(b.x,b.y,'#888'); break; }
           e.hp--;
-          if (e.hp <= 0){ enemiesKilledThisLevel++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); spawnDrop(e); hitStopTimer = 4;
+          if (e.hp <= 0){ enemiesKilledThisLevel++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); const pts = addScore(100); addFloater(e.x+8, e.y-2, '+'+pts, '#ffd24d', 10); spawnDrop(e); hitStopTimer = 4;
+            totalKills++;
             comboCount++; comboTimer = 180;
+            if (comboCount > maxCombo) maxCombo = comboCount;
             if (comboCount >= 2){ addScore(comboCount * 10); comboDisplayTimer = 60; }
           }
           else { explode(b.x,b.y,'#888'); addScore(20); }
@@ -1629,6 +1687,7 @@
           }
           b.dead=true; sfx.hit();
           playerHP -= levelDebuffs.includes('vuln') ? 2 : 1; // 易伤惩罚：双倍伤害
+          dmgFlash = 18; // 受击红闪
           updateHPDisplay();
           if (playerHP <= 0){
             explode(player.x+player.w/2,player.y+player.h/2,player.color);
@@ -1674,6 +1733,9 @@
     bullets = bullets.filter(b=>!b.dead);
     enemies = enemies.filter(e=>e.alive);
     setText(enemiesEl, enemies.length);
+    // 本关进度：已杀/配额（无尽模式显示波次剩余）
+    const remain = Math.max(0, enemiesTotal - enemiesKilledThisLevel);
+    setText(enemiesProgressEl, ' · 剩余 '+remain);
 
     // 生成敌人（配额制：按时间节奏持续生成，直到本关配额出完；场上数量无上限）
     // 生成与击杀解耦——不是死一个补一个，而是每间隔一段时间稳定生成
@@ -1749,6 +1811,27 @@
       el._timer = setTimeout(() => { el.style.opacity = '0'; setTimeout(() => { if (el.style.opacity === '0') el.style.display = 'none'; }, 300); }, 1800);
     }
 
+    // 道具磁吸：距玩家 2.5 格内自动滑向玩家（提升拾取手感）
+    for (const p of pickups){
+      if (p.dead) continue;
+      const pcx = p.x + 8, pcy = p.y + 8;
+      let magnet = null;
+      if (player && player.alive){
+        const dx = player.x+8-pcx, dy = player.y+8-pcy;
+        if (dx*dx+dy*dy < TILE*TILE*6.25) magnet = {x:player.x+8, y:player.y+8};
+      }
+      if (!magnet && dualMode && player2 && player2.alive){
+        const dx = player2.x+8-pcx, dy = player2.y+8-pcy;
+        if (dx*dx+dy*dy < TILE*TILE*6.25) magnet = {x:player2.x+8, y:player2.y+8};
+      }
+      if (magnet){
+        const dx = magnet.x-pcx, dy = magnet.y-pcy;
+        const dist = Math.sqrt(dx*dx+dy*dy) || 1;
+        const pull = Math.min(2.2*dt, dist);
+        p.x += dx/dist*pull; p.y += dy/dist*pull;
+      }
+    }
+
     // 拾取道具（玩家1）
     if (player.alive){
       for (const p of pickups){
@@ -1761,7 +1844,7 @@
         if (p.type === 'baseshield'){ baseShieldCharges++; }  // 基地护盾次数 +1
         if (p.type === 'freeze'){ freezeTimer = 180; }
         if (p.type === 'bomb'){
-          for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); }
+          for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; totalKills++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); }
           shake(15,4);
         }
         if (p.type === 'apbullet'){ apCharges++; }            // 穿甲次数 +1
@@ -1785,6 +1868,7 @@
           explode(p.x,p.y,'#44ff44');
         }
         showPickupToast(p.type);
+        addFloater(p.x+8, p.y-2, PICKUP_NAMES[p.type] ? PICKUP_NAMES[p.type][0] : '', PICKUP_NAMES[p.type] ? PICKUP_NAMES[p.type][1] : '#fff', 9);
         p.dead = true;
       }
     }
@@ -1799,7 +1883,7 @@
         if (p.type === 'baseshield'){ baseShieldCharges++; }
         if (p.type === 'freeze'){ freezeTimer = 180; }
         if (p.type === 'bomb'){
-          for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); }
+          for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; totalKills++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); }
           shake(15,4);
         }
         if (p.type === 'apbullet'){ apCharges++; }
@@ -1821,6 +1905,7 @@
           explode(p.x,p.y,'#44ff44');
         }
         showPickupToast(p.type);
+        addFloater(p.x+8, p.y-2, PICKUP_NAMES[p.type] ? PICKUP_NAMES[p.type][0] : '', PICKUP_NAMES[p.type] ? PICKUP_NAMES[p.type][1] : '#fff', 9);
         p.dead = true;
       }
     }
@@ -1828,6 +1913,8 @@
 
     // 冰冻效果倒计时（冻结是即时效果，不是次数制）
     if (freezeTimer > 0) freezeTimer-=dt;
+    if (dmgFlash > 0) dmgFlash-=dt;
+    if (bossWarn > 0) bossWarn-=dt;
     // 加速移动状态：无按键自动结束
     if (!(keys['w']||keys['s']||keys['a']||keys['d']||keys['ArrowUp']||keys['ArrowDown']||keys['ArrowLeft']||keys['ArrowRight'])) speedActive = false;
     // 本关惩罚：失血（每秒-1，最低留1，不致死）
@@ -1883,6 +1970,9 @@
     // 粒子
     for (const p of particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; }
     particles = particles.filter(p=>p.life>0);
+    // 飘字
+    for (const f of floaters){ f.y += f.vy*dt; f.life -= dt; }
+    floaters = floaters.filter(f=>f.life>0);
   }
 
   function dirTowards(e, t){
@@ -1973,8 +2063,9 @@
     enemiesKilledThisLevel = 0;
     enemiesSpawned = 0; // 配额制：本关已生成数清零
     enemiesTotal = level % 5 === 0 ? 10 + level : (endlessMode ? 15 + level * 2 : 20 + (level-1) * 2);
-    shieldCharges = 0; bulletUpgraded = false; doubleShot = false; baseShieldCharges = 0; freezeTimer = 0; apCharges = 0;
+    shieldCharges = 0; bulletUpgraded = permFire; doubleShot = permDouble; baseShieldCharges = permShield; freezeTimer = 0; apCharges = 0;
     speedCharges = 0; tripleCharges = 0; laserCharges = 0; scoreCharges = 0; speedActive = false;
+    dmgFlash = 0; bossWarn = 0;
     p1SlideTimer = 0; p1SlideDir = null; p1SlideSpeed = 0; p2SlideTimer = 0; p2SlideDir = null; p2SlideSpeed = 0;
     comboCount = 0; comboTimer = 0; comboDisplayTimer = 0;
     waveSpawned = false; airdropTimer = 0;
@@ -2284,17 +2375,33 @@
     }
     for (const e of enemies) if (e.alive) drawTank(e);
     if (boss && boss.alive) drawBoss(boss);
-    // 冰冻视觉效果
+    // 冰冻视觉效果（冰晶闪烁）
     if (freezeTimer > 0){
+      const glint = Math.floor(Date.now()/180) % 2 === 0;
       for (const e of enemies) if (e.alive){
         ctx.fillStyle = 'rgba(100,200,255,0.35)';
         ctx.fillRect(e.x,e.y,TILE,TILE);
+        if (glint){
+          ctx.fillStyle = 'rgba(220,245,255,0.7)';
+          ctx.fillRect(e.x+3,e.y+3,3,2);
+          ctx.fillRect(e.x+10,e.y+9,3,2);
+        }
       }
     }
     // 草地层（预渲染 blit，覆盖坦克）
     ctx.drawImage(grassLayer, 0, 0);
     // 粒子
     for (const p of particles) fillRect(p.x,p.y,p.size||2,p.size||2,p.color);
+    // 飘字（打击感反馈）
+    for (const f of floaters){
+      const a = Math.min(1, f.life / 15);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = f.color;
+      ctx.font = 'bold ' + f.size + 'px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(f.text, f.x, f.y);
+      ctx.globalAlpha = 1;
+    }
     // 致盲（本关惩罚）：明暗交替——暗 1.5 秒、亮 0.5 秒，暗时视野收窄到玩家周围
     if (levelDebuffs.includes('blind') && Math.floor(blindPhase / 90) % 4 !== 3){
       const cx = player && player.alive ? player.x + 8 : W/2;
@@ -2335,6 +2442,41 @@
         ctx.fillText('⚠ 本关惩罚: ' + levelDebuffs.map(d=>icons[d]||d).join('  '), W/2, H/2 + 44 + yOff);
       }
     }
+    // 玩家无敌闪烁（复活/出生保护）
+    if (player && player.alive && playerInvTimer > 0 && Math.floor(playerInvTimer/4) % 2 === 0){
+      ctx.strokeStyle = 'rgba(255,255,120,0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(player.x+8, player.y+8, 11, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    // 受击红闪
+    if (dmgFlash > 0){
+      ctx.fillStyle = 'rgba(255,40,40,' + Math.min(0.35, dmgFlash/18*0.35) + ')';
+      ctx.fillRect(0,0,W,H);
+    }
+    // 低血量警示（HP<=1 时红色脉动边框）
+    if (player && player.alive && playerHP <= 1 && !cheatInvincible){
+      const pulse = (Math.sin(Date.now()/200) + 1) / 2; // 0..1
+      ctx.strokeStyle = 'rgba(255,50,50,' + (0.35 + pulse*0.45) + ')';
+      ctx.lineWidth = 5;
+      ctx.strokeRect(2, 2, W-4, H-4);
+      ctx.strokeStyle = 'rgba(255,150,50,' + (0.15 + pulse*0.25) + ')';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(7, 7, W-14, H-14);
+    }
+    // Boss 出场警告横幅
+    if (bossWarn > 0){
+      const blink = Math.floor(bossWarn/8) % 2 === 0;
+      if (blink){
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0, H/2-22, W, 44);
+        ctx.fillStyle = '#ff4444';
+        ctx.font = 'bold 16px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('⚠ BOSS 来袭 ⚠', W/2, H/2+6);
+      }
+    }
     // 关卡主题色
     if (level >= 4){
       let theme = '';
@@ -2342,6 +2484,18 @@
       else if (level <= 9) theme = 'rgba(255,180,180,0.05)';
       else theme = 'rgba(200,180,255,0.06)';
       if (theme) fillRect(0,0,W,H,theme);
+    }
+    // 暂停遮罩（升级界面除外）
+    if (paused && running && !upgradePending){
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0,0,W,H);
+      ctx.fillStyle = '#ffd24d';
+      ctx.font = 'bold 22px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('⏸ 已暂停', W/2, H/2-8);
+      ctx.font = '11px monospace';
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('按 P 继续', W/2, H/2+16);
     }
     if (_shook) ctx.restore();
   }
@@ -2364,11 +2518,12 @@
     enemiesSpawned=0;
     enemiesTotal = level % 5 === 0 ? 10 + level : (endlessMode ? 15 + level * 2 : 20 + (level-1) * 2);
     bullets=[]; particles=[]; enemies=[]; spawnTimer=0; pickups=[]; boss=null; ally=null; allyRespawnTimer=0;
-    shieldCharges=0; bulletUpgraded=false; doubleShot=false; baseShieldCharges=0; freezeTimer=0; pickupTimer=0;
+    shieldCharges=0; bulletUpgraded=permFire; doubleShot=permDouble; baseShieldCharges=permShield; freezeTimer=0; pickupTimer=0;
     apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
     p1SlideTimer=0; p1SlideDir=null; p1SlideSpeed=0; p2SlideTimer=0; p2SlideDir=null; p2SlideSpeed=0;
     comboCount=0; comboTimer=0; comboDisplayTimer=0;
-    permHP=0; permLives=0; permSpeed=0; upgradePending=false;
+    totalKills=0; maxCombo=0;
+    permHP=0; permLives=0; permSpeed=0; permFire=false; permDouble=false; permShield=0; upgradePending=false;
     playerHP=5; playerMaxHP=5; waveSpawned=false; airdropTimer=0;
     document.getElementById('levelLabel').textContent = endlessMode ? '波次' : '关卡';
     emptyMap(); spawnPlayer();
@@ -2491,7 +2646,8 @@
     const modeLabel = endlessMode ? '波次' : '关卡';
     let extra = '';
     if (dualMode) extra = '<br>P1生命：'+lives+' &nbsp; P2生命：'+p2lives;
-    ovText.innerHTML = '最终得分：<b style="color:#ffd24d">'+score+'</b><br>到达'+modeLabel+'：'+level+extra;
+    ovText.innerHTML = '最终得分：<b style="color:#ffd24d">'+score+'</b><br>到达'+modeLabel+'：'+level+extra+
+      '<br><span style="color:#888">本局击杀 '+totalKills+' &nbsp; 最高连杀 ×'+maxCombo+'</span>';
     btnRetry.style.display = '';
     document.getElementById('btnResume').style.display = 'none';
     overlay.classList.remove('hidden');
@@ -2530,7 +2686,7 @@
     enemiesKilledThisLevel = 0;
     enemiesSpawned = 0;
     enemiesTotal = level % 5 === 0 ? 10 + level : (endlessMode ? 15 + level * 2 : 20 + (level-1) * 2);
-    shieldCharges=0; bulletUpgraded=false; doubleShot=false; baseShieldCharges=0; freezeTimer=0;
+    shieldCharges=0; bulletUpgraded=permFire; doubleShot=permDouble; baseShieldCharges=permShield; freezeTimer=0;
     apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
     pickupTimer = 0; airdropTimer = 0;
     rollLevelDebuffs();
@@ -2559,6 +2715,13 @@
       {id:'life', label:'✚ 加一条命', desc:'额外一次复活机会', fn:()=>{ permLives++; lives++; livesEl.textContent=lives; }},
       {id:'speed', label:'⚡ 加速', desc:'移动速度 +15%', fn:()=>{ permSpeed++; }},
     ];
+    if (!permFire){
+      upgrades.push({id:'fire', label:'🔥 永久火力', desc:'每关开局自带强化子弹', fn:()=>{ permFire = true; bulletUpgraded = true; }});
+    }
+    if (!permDouble){
+      upgrades.push({id:'dbl', label:'💥 永久双发', desc:'每关开局自带双发', fn:()=>{ permDouble = true; doubleShot = true; }});
+    }
+    upgrades.push({id:'shield', label:'🛡 开局护盾', desc:'每关开局 +1 护盾次数（可叠加）', fn:()=>{ permShield++; shieldCharges++; }});
     if (playerHP < playerMaxHP) {
       upgrades.push({id:'heal', label:'❤️‍🩹 回血', desc:'血量回满（'+playerHP+'→'+playerMaxHP+'）', fn:()=>{ playerHP = playerMaxHP; }});
     }
@@ -2595,8 +2758,12 @@
       document.getElementById('cheatRow').style.display = cheatInvincible ? 'flex' : 'none';
     }
     if ((k==='i'||k==='I') && running){
-      for (const e of enemies) if (e.alive){ e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); }
-      if (boss && boss.alive){ boss.alive=false; addScore(500+level*100); sfx.boom(); shake(10,4); }
+      for (const e of enemies) if (e.alive){ e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); addFloater(e.x+8, e.y-2, '+100', '#ffd24d', 10);
+        totalKills++;
+        comboCount++; comboTimer = 180;
+        if (comboCount > maxCombo) maxCombo = comboCount;
+      }
+      if (boss && boss.alive){ boss.alive=false; addScore(500+level*100); addFloater(boss.x+16, boss.y-4, '+'+String(500+level*100), '#ffd24d', 12); sfx.boom(); shake(10,4); }
     }
     if ((k==='l'||k==='L') && running && !upgradePending && base.alive){
       upgradePending=true; paused=true; sfx.level(); showUpgradeScreen();
@@ -2650,17 +2817,24 @@
     // 阻止页面滚动/缩放
     document.addEventListener('touchmove', e=>{ if (e.target.closest('#game,#touch-controls')) e.preventDefault(); }, {passive:false});
 
-    // Invisible touch movement — slide left side of screen
+    // Invisible touch movement — slide left side of screen（带虚拟摇杆反馈）
     let flTouchId = null;
     let flCenterX = 0, flCenterY = 0;
     const flMaxDist = 55;
-    const flDeadZone = 15;
+    const flDeadZone = 14;
+    const vjoy = document.getElementById('virtualJoy');
+    const vthumb = document.getElementById('virtualThumb');
 
+    // 按滑动角度选 4 方向（对角取主导轴），避免对角同时按两键导致斜向抖动
     function setMoveKeys(dx, dy) {
-      keys['w'] = dy < -flDeadZone;
-      keys['s'] = dy > flDeadZone;
-      keys['a'] = dx < -flDeadZone;
-      keys['d'] = dx > flDeadZone;
+      keys['w'] = keys['s'] = keys['a'] = keys['d'] = false;
+      const adx = Math.abs(dx), ady = Math.abs(dy);
+      if (Math.max(adx, ady) < flDeadZone) return;
+      if (adx >= ady) {
+        if (dx > 0) keys['d'] = true; else keys['a'] = true;
+      } else {
+        if (dy > 0) keys['s'] = true; else keys['w'] = true;
+      }
     }
 
     function updateMove(touch) {
@@ -2673,22 +2847,35 @@
         dy *= ratio;
       }
       setMoveKeys(dx, dy);
+      // 虚拟摇杆：中心固定在触点，拇指跟随（含死区提示）
+      vjoy.style.left = flCenterX + 'px';
+      vjoy.style.top = flCenterY + 'px';
+      const tx = (dist < flDeadZone ? 0 : dx) / flMaxDist * 30;
+      const ty = (dist < flDeadZone ? 0 : dy) / flMaxDist * 30;
+      vthumb.style.transform = 'translate(calc(-50% + ' + tx + 'px), calc(-50% + ' + ty + 'px))';
+    }
+
+    function startMove(touch) {
+      flTouchId = touch.identifier;
+      flCenterX = touch.clientX;
+      flCenterY = touch.clientY;
+      vjoy.style.left = flCenterX + 'px';
+      vjoy.style.top = flCenterY + 'px';
+      vthumb.style.transform = 'translate(-50%, -50%)';
+      vjoy.classList.add('active');
     }
 
     function stopMove() {
       flTouchId = null;
       setMoveKeys(0, 0);
+      vjoy.classList.remove('active');
     }
 
     document.addEventListener('touchstart', e => {
       for (const t of e.changedTouches) {
         if (t.clientX > window.innerWidth * 0.62) continue;
         if (t.target.closest('#touch-controls,#overlay,#upgradeOverlay')) continue;
-        if (flTouchId === null) {
-          flTouchId = t.identifier;
-          flCenterX = t.clientX;
-          flCenterY = t.clientY;
-        }
+        if (flTouchId === null) startMove(t);
       }
     }, {passive: false});
 
