@@ -1343,7 +1343,10 @@
         );
         const baseChance = 0.004 + Math.min(level-1, 6) * 0.002;
         const shootChance = aligned ? baseChance * 3 : baseChance;
-        if (Math.random() < shootChance && canSeePlayer) shoot(e);
+        // 帧率无关：概率按 dt 累积，避免高刷屏(120Hz)每帧掷骰导致射击翻倍
+        if (e.fireAcc === undefined) e.fireAcc = Math.random();
+        e.fireAcc += shootChance * dt;
+        if (e.fireAcc >= 1 && canSeePlayer) { e.fireAcc -= 1; shoot(e); }
       }
     }
 
@@ -1490,11 +1493,16 @@
           }
         }
       }
-      // 射击：只打威胁基地的目标
-      if (target && ally.cooldown <= 0 && Math.random() < (ally.isAirdrop ? 0.4 : 0.7) && hasLineOfSight(ally.x+ally.w/2, ally.y+ally.h/2, target.x+target.w/2, target.y+target.h/2)) {
-        ally.dir = dirTowards(ally, target);
-        shoot(ally);
-        if (ally.isAirdrop) ally.cooldown = 60;
+      // 射击：只打威胁基地的目标（概率按 dt 累积，帧率无关）
+      if (target && ally.cooldown <= 0) {
+        if (ally.fireAcc === undefined) ally.fireAcc = 0;
+        ally.fireAcc += (ally.isAirdrop ? 0.4 : 0.7) * dt;
+        if (ally.fireAcc >= 1 && hasLineOfSight(ally.x+ally.w/2, ally.y+ally.h/2, target.x+target.w/2, target.y+target.h/2)) {
+          ally.fireAcc -= 1;
+          ally.dir = dirTowards(ally, target);
+          shoot(ally);
+          if (ally.isAirdrop) ally.cooldown = 60;
+        }
       }
     }
     // 空投降落动画
