@@ -295,32 +295,45 @@ test('K: level debuff (vuln) makes player take double damage', async ({ page }) 
   expect(hpBefore - hpAfter).toBe(2);
 });
 
-test('L: speed buff item makes player faster and shows timer', async ({ page }) => {
+test('L: speed buff is charge-based, stacks and consumes on move', async ({ page }) => {
   await page.click('#btn1p');
   await page.waitForTimeout(500);
-  const ok = await page.evaluate(() => window.__test.applyBuff('speed', 420));
+  const ok = await page.evaluate(() => window.__test.applyBuff('speed', 3));
   expect(ok).toBe(true);
-  await expect(page.locator('#bufSpeed')).toHaveText('7秒');
-  // 加速期间移动速度倍率应为 1.4（与减速惩罚叠加逻辑同源）
-  const buffed = await page.evaluate(() => window.__test.playerSpeedFactor);
-  expect(buffed).toBeCloseTo(1.4, 5);
-  await page.evaluate(() => window.__test.applyBuff('speed', 0));
+  await expect(page.locator('#bufSpeed')).toHaveText('加速×3');
+  // 未移动时加速不激活
+  const idle = await page.evaluate(() => window.__test.speedActiveState);
+  expect(idle).toBe(false);
+  // 按下方向键 → 激活加速并消耗 1 次
+  await page.keyboard.down('w');
   await page.waitForTimeout(200);
-  const normal = await page.evaluate(() => window.__test.playerSpeedFactor);
-  expect(normal).toBeCloseTo(1.0, 5);
-  await expect(page.locator('#bufSpeed')).toHaveText('-');
+  const active = await page.evaluate(() => window.__test.speedActiveState);
+  const speedFactor = await page.evaluate(() => window.__test.playerSpeedFactor);
+  const charges = await page.evaluate(() => window.__test.buffCharges);
+  expect(active).toBe(true);
+  expect(speedFactor).toBeCloseTo(1.4, 5);
+  expect(charges.speed).toBe(2);
+  await page.keyboard.up('w');
+  await page.waitForTimeout(200);
+  const inactive = await page.evaluate(() => window.__test.speedActiveState);
+  expect(inactive).toBe(false);
+  await expect(page.locator('#bufSpeed')).toHaveText('加速×2');
 });
 
-test('M: score buff item doubles score gains', async ({ page }) => {
+test('M: score buff doubles score gains per charge (stacks)', async ({ page }) => {
   await page.click('#btn1p');
   await page.waitForTimeout(1500);
-  await page.evaluate(() => window.__test.applyBuff('score', 600));
-  await expect(page.locator('#bufScore')).toHaveText('10秒');
+  await page.evaluate(() => window.__test.applyBuff('score', 3));
+  await expect(page.locator('#bufScore')).toHaveText('双倍×3');
   const before = await page.evaluate(() => window.__test.score);
   const enemyCount = await page.evaluate(() => window.__test.enemiesCount);
   expect(enemyCount).toBeGreaterThan(0);
-  await page.keyboard.press('i'); // 击杀所有敌人，每个 100 分 → 双倍 200
+  // 3 次双倍机会：前 3 个敌人每个 200 分，其余 100 分
+  await page.keyboard.press('i');
   await page.waitForTimeout(300);
   const after = await page.evaluate(() => window.__test.score);
-  expect(after - before).toBe(enemyCount * 200);
+  const expected = Math.min(3, enemyCount) * 200 + Math.max(0, enemyCount - 3) * 100;
+  expect(after - before).toBe(expected);
+  const charges = await page.evaluate(() => window.__test.buffCharges);
+  expect(charges.score).toBe(Math.max(0, 3 - enemyCount));
 });

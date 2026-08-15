@@ -354,7 +354,7 @@
 
   let player, player2, enemies, bullets, base, particles, pickups, boss, ally;
   let score=0, level=1, lives=3, p2lives=3, running=false, paused=false, spawnTimer=0, pickupTimer=0;
-  let shieldTimer=0, bulletUpgraded=false, doubleShot=false, baseShieldTimer=0, freezeTimer=0, allyRespawnTimer=0, apBulletTimer=0, shakeTimer=0, shakeIntensity=0;
+  let bulletUpgraded=false, doubleShot=false, freezeTimer=0, allyRespawnTimer=0, shakeTimer=0, shakeIntensity=0;
   let permHP=0, permLives=0, permSpeed=0;
   let playerHP=5, playerMaxHP=5;
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, waveSpawned=false;
@@ -363,6 +363,7 @@
   let levelIntroTimer = 0;                       // 关卡过场动画计时
   let hitStopTimer = 0;
   let enemiesKilledThisLevel = 0;
+  let enemiesSpawned = 0, enemiesTotal = 20; // 本关已生成/需生成总数（配额制）
   const ICE_SLIDE_SPEED_FACTOR = 0.7;
   const ICE_SLIDE_DURATION = 8;
   let p1SlideTimer = 0, p1SlideDir = null, p1SlideSpeed = 0;
@@ -374,8 +375,9 @@
   let blindPhase = 0;               // 致盲明暗相位
   let drainTick = 0;                // 失血计时
   let allyShotsFired = 0;           // 队友开火计数（测试用）
-  // 新强化道具计时器
-  let speedTimer = 0, tripleTimer = 0, laserTimer = 0, scoreTimer = 0;
+  // 新强化道具 —— 次数制（拾取 +1 可叠加，用完即止，无时间限制）
+  let shieldCharges = 0, baseShieldCharges = 0, apCharges = 0, speedCharges = 0, tripleCharges = 0, laserCharges = 0, scoreCharges = 0;
+  let speedActive = false; // 加速移动进行中（按方向键期间生效，消耗次数）
 
   // ===== 音效 (Web Audio 8-bit 风格) =====
   let actx = null;
@@ -781,18 +783,18 @@
 
   function spawnPickup(){
     if (pickups.length >= 3) return;
-    // 只生成当前未激活的技能类型
+    // 次数制道具可叠加（shield/双发等永久型仍需判断）；其他次数型随时可生成
     const available = [];
-    if (shieldTimer <= 0) available.push('shield');
     if (!bulletUpgraded) available.push('bullet');
     if (!doubleShot) available.push('doubleshot');
-    if (baseShieldTimer <= 0) available.push('baseshield');
-    if (freezeTimer <= 0) available.push('freeze');
-    if (apBulletTimer <= 0) available.push('apbullet');
-    if (speedTimer <= 0) available.push('speed');
-    if (tripleTimer <= 0) available.push('triple');
-    if (laserTimer <= 0) available.push('laser');
-    if (scoreTimer <= 0) available.push('score');
+    available.push('shield');
+    available.push('baseshield');
+    available.push('freeze');
+    available.push('apbullet');
+    available.push('speed');
+    available.push('triple');
+    available.push('laser');
+    available.push('score');
     available.push('repair');
     available.push('bomb');
     available.push('medkit');
@@ -818,16 +820,8 @@
     if (Math.random() >= 0.3) return;
     if (pickups.length >= 3) return;
     const available = PICKUP_TYPES.filter(t => {
-      if (t==='shield' && shieldTimer>0) return false;
       if (t==='bullet' && bulletUpgraded) return false;
       if (t==='doubleshot' && doubleShot) return false;
-      if (t==='baseshield' && baseShieldTimer>0) return false;
-      if (t==='freeze' && freezeTimer>0) return false;
-      if (t==='apbullet' && apBulletTimer>0) return false;
-      if (t==='speed' && speedTimer>0) return false;
-      if (t==='triple' && tripleTimer>0) return false;
-      if (t==='laser' && laserTimer>0) return false;
-      if (t==='score' && scoreTimer>0) return false;
       return true;
     });
     if (available.length===0) return;
@@ -871,10 +865,12 @@
       e.dir = 'down';
       enemies.push(e);
       e.invTimer = 60; // 1秒出生无敌
+      enemiesSpawned++; // 计数本关已生成
       waveSpawned = true;
-      return;
+      return true;
     }
     // 三个点都被占，等待下次
+    return false;
   }
 
   function rectsOverlap(a,b){ return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y; }
@@ -933,8 +929,13 @@
     if (t.cooldown > 0) return;
     const isPlayer = !!t.isPlayer;
     const rapid = !isPlayer && t.rapid;
-    const isLaser = isPlayer && laserTimer > 0;         // 激光速射
-    const isTriple = isPlayer && tripleTimer > 0;       // 三连发
+    // 次数制：每次射击消耗 1 次对应强化
+    const isLaser = isPlayer && laserCharges > 0;   // 激光速射
+    const isTriple = isPlayer && tripleCharges > 0; // 三连发
+    const isAp = isPlayer && apCharges > 0;         // 穿甲弹
+    if (isLaser) laserCharges--;
+    if (isTriple) tripleCharges--;
+    if (isAp) apCharges--;
     t.cooldown = isPlayer ? (isLaser ? 14 : 28) : (rapid ? 30 : 50);
     const d = DIR[t.dir];
     const speed = isPlayer && (bulletUpgraded || isLaser) ? 4.5 : 2.4;
@@ -960,7 +961,8 @@
         y: cy + d.y * t.h / 2 + perp.y * off,
         vx, vy,
         from: t.isPlayer ? 'p' : 'e',
-        w:s, h:s
+        w:s, h:s,
+        ap: isAp   // 穿甲标记（打钢墙不消耗）
       });
     }
     if (t === ally) allyShotsFired++;
@@ -991,9 +993,10 @@
     setText(hpDisplay, hearts || '死');
   }
 
-  // 得分入账（双倍得分 buff 期间 ×2）
+  // 得分入账（双倍得分次数制：每次得分消耗 1 次双倍机会）
   function addScore(n){
-    score += (scoreTimer > 0 ? 2 : 1) * n;
+    if (scoreCharges > 0){ scoreCharges--; n *= 2; }
+    score += n;
     scoreEl.textContent = score;
   }
 
@@ -1004,9 +1007,12 @@
 
     if (player.alive) {
       const p1OnIce = tileAt(player.x+8, player.y+8) === 6;
-      // 速度 = 基础 × 惩罚减速(0.6) × 加速buff(1.4)
-      const spdF = (levelDebuffs.includes('slow') ? 0.6 : 1) * (speedTimer > 0 ? 1.4 : 1);
+      // 速度 = 基础 × 惩罚减速(0.6) × 加速次数激活(1.4)
       const p1HasKey = keys['w'] || keys['s'] || keys['a'] || keys['d'];
+      // 加速次数制：开始移动时消耗 1 次，本次移动期间加速；松开后恢复
+      if (p1HasKey && !speedActive && speedCharges > 0) { speedActive = true; speedCharges--; }
+      if (!p1HasKey) speedActive = false;
+      const spdF = (levelDebuffs.includes('slow') ? 0.6 : 1) * (speedActive ? 1.4 : 1);
       if (p1SlideTimer > 0) {
         player.dir = p1SlideDir;
         const sd = DIR[p1SlideDir];
@@ -1034,8 +1040,10 @@
     }
     if (dualMode && player2 && player2.alive) {
       const p2OnIce = tileAt(player2.x+8, player2.y+8) === 6;
-      const spdF2 = (levelDebuffs.includes('slow') ? 0.6 : 1) * (speedTimer > 0 ? 1.4 : 1);
       const p2HasKey = keys['ArrowUp'] || keys['ArrowDown'] || keys['ArrowLeft'] || keys['ArrowRight'];
+      if (p2HasKey && !speedActive && speedCharges > 0) { speedActive = true; speedCharges--; }
+      if (!p2HasKey) speedActive = false;
+      const spdF2 = (levelDebuffs.includes('slow') ? 0.6 : 1) * (speedActive ? 1.4 : 1);
       if (p2SlideTimer > 0) {
         player2.dir = p2SlideDir;
         const sd2 = DIR[p2SlideDir];
@@ -1203,7 +1211,8 @@
       if (e.type === 'suicide' && e.alive) {
         let hit = false;
         if (player.alive && rectsOverlap(e, player)){
-          if (!cheatInvincible && shieldTimer <= 0 && playerInvTimer <= 0){
+          if (shieldCharges > 0){ shieldCharges--; explode(e.x+e.w/2,e.y+e.h/2,'#4af'); }
+          else if (!cheatInvincible && playerInvTimer <= 0){
             playerHP = Math.max(playerHP - (levelDebuffs.includes('vuln') ? 4 : 2), 0); // 易伤惩罚：双倍
             updateHPDisplay();
             if (playerHP <= 0){
@@ -1235,10 +1244,13 @@
             const tc = (x/TILE)|0, tr = (y/TILE)|0;
             if (tr>=0&&tc>=0&&tr<ROWS&&tc<COLS && map[tr][tc]===3){ hc=tc; hr=tr; break; }
           }
-          if (hc>=0 && baseShieldTimer<=0 && base.alive){
-            base.hp -= 2;
-            if (base.hp <= 0){ base.alive=false; map[hr][hc]=0; mapDirty = true; gameOver(false); }
-            else { explode(hr*TILE,hc*TILE,'#ff6600'); sfx.boom(); }
+          if (hc>=0 && base.alive){
+            if (baseShieldCharges > 0){ baseShieldCharges--; explode(hr*TILE,hc*TILE,'#88ff44'); }
+            else {
+              base.hp -= 2;
+              if (base.hp <= 0){ base.alive=false; map[hr][hc]=0; mapDirty = true; gameOver(false); }
+              else { explode(hr*TILE,hc*TILE,'#ff6600'); sfx.boom(); }
+            }
             hit = true;
           }
         }
@@ -1459,9 +1471,9 @@
       if (c>=0&&r>=0&&c<COLS&&r<ROWS){
         const v = map[r][c];
         if (v===1) { map[r][c]=0; mapDirty = true; b.dead=true; explode(b.x,b.y,'#caa'); continue; }
-        if (v===2) { if (!(apBulletTimer>0 && b.from==='p')) b.dead=true; continue; }
+        if (v===2) { if (!b.ap) b.dead=true; continue; }
         if (v===3) { // 基地
-          if (baseShieldTimer > 0){ b.dead=true; explode(b.x,b.y,'#88ff44'); continue; }
+          if (baseShieldCharges > 0){ baseShieldCharges--; b.dead=true; explode(b.x,b.y,'#88ff44'); continue; }
           if (base.alive){
             base.hp--;
             if (base.hp <= 0){ base.alive=false; map[r][c]=0; mapDirty = true; explode(b.x,b.y,'#ffd24d'); shake(15,5); gameOver(false); }
@@ -1503,7 +1515,8 @@
           continue;
         }
         if (player.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},player)){
-          if (cheatInvincible || shieldTimer > 0 || playerInvTimer > 0) {
+          if (cheatInvincible || shieldCharges > 0 || playerInvTimer > 0) {
+            if (shieldCharges > 0) shieldCharges--; // 护盾次数抵挡一次
             b.dead=true; explode(b.x,b.y, playerInvTimer>0?'#ff0':cheatInvincible?'#ff0':'#4af');
             continue;
           }
@@ -1555,11 +1568,13 @@
     enemies = enemies.filter(e=>e.alive);
     setText(enemiesEl, enemies.length);
 
-    // 生成敌人（先于过关判定，避免空场时直接判胜）
-    const maxEnemies = Math.min(1 + Math.floor((level-1) * 0.6), 5);
-    if (enemies.length < maxEnemies && spawnTimer<=0){
-      spawnEnemy(); spawnTimer = 180 + ((Math.random()*120)|0) - level*10;
-      if (spawnTimer < 60) spawnTimer = 60;
+    // 生成敌人（配额制：按时间节奏持续生成，直到本关配额出完；场上数量无上限）
+    // 生成与击杀解耦——不是死一个补一个，而是每间隔一段时间稳定生成
+    if (spawnTimer<=0 && enemiesSpawned < enemiesTotal){
+      spawnEnemy();
+      // 生成间隔：随等级略微加快，但保持缓慢节奏（约 2.2~4.5 秒）
+      spawnTimer = 200 + ((Math.random()*120)|0) - level*6;
+      if (spawnTimer < 100) spawnTimer = 100;
     }
     if (spawnTimer>0) spawnTimer-=dt;
 
@@ -1569,9 +1584,9 @@
       if (level % 5 === 0) {
         if (boss && !boss.alive) done = true;
       } else if (endlessMode) {
-        if (waveSpawned && enemies.length === 0 && spawnTimer <= 0) done = true;
+        if (waveSpawned && enemies.length === 0 && enemiesSpawned >= enemiesTotal) done = true;
       } else {
-        if (enemiesKilledThisLevel >= 20 + (level-1) * 2) done = true;
+        if (enemiesKilledThisLevel >= enemiesTotal) done = true;
       }
       if (done) {
         upgradePending = true;
@@ -1633,20 +1648,20 @@
         if (p.dead) continue;
         if (!rectsOverlap(player,p)) continue;
         sfx.powerup();
-        if (p.type === 'shield'){ shieldTimer = 300; }
+        if (p.type === 'shield'){ shieldCharges++; }          // 护盾次数 +1
         if (p.type === 'bullet'){ bulletUpgraded = true; }
         if (p.type === 'doubleshot'){ doubleShot = true; }
-        if (p.type === 'baseshield'){ baseShieldTimer = 600; }
+        if (p.type === 'baseshield'){ baseShieldCharges++; }  // 基地护盾次数 +1
         if (p.type === 'freeze'){ freezeTimer = 180; }
         if (p.type === 'bomb'){
           for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); }
           shake(15,4);
         }
-        if (p.type === 'apbullet'){ apBulletTimer = 300; }
-        if (p.type === 'speed'){ speedTimer = 420; }      // 加速 7 秒
-        if (p.type === 'triple'){ tripleTimer = 360; }    // 三连发 6 秒
-        if (p.type === 'laser'){ laserTimer = 360; }      // 激光速射 6 秒
-        if (p.type === 'score'){ scoreTimer = 600; }      // 双倍得分 10 秒
+        if (p.type === 'apbullet'){ apCharges++; }            // 穿甲次数 +1
+        if (p.type === 'speed'){ speedCharges++; }            // 加速次数 +1
+        if (p.type === 'triple'){ tripleCharges++; }          // 三连发次数 +1
+        if (p.type === 'laser'){ laserCharges++; }            // 激光次数 +1
+        if (p.type === 'score'){ scoreCharges++; }            // 双倍得分次数 +1
         if (p.type === 'life'){ lives++; livesEl.textContent = lives; } // 加命
         if (p.type === 'repair'){
           if (base.alive){
@@ -1671,20 +1686,20 @@
         if (p.dead) continue;
         if (!rectsOverlap(player2,p)) continue;
         sfx.powerup();
-        if (p.type === 'shield'){ shieldTimer = 300; }
+        if (p.type === 'shield'){ shieldCharges++; }
         if (p.type === 'bullet'){ bulletUpgraded = true; }
         if (p.type === 'doubleshot'){ doubleShot = true; }
-        if (p.type === 'baseshield'){ baseShieldTimer = 600; }
+        if (p.type === 'baseshield'){ baseShieldCharges++; }
         if (p.type === 'freeze'){ freezeTimer = 180; }
         if (p.type === 'bomb'){
           for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); }
           shake(15,4);
         }
-        if (p.type === 'apbullet'){ apBulletTimer = 300; }
-        if (p.type === 'speed'){ speedTimer = 420; }
-        if (p.type === 'triple'){ tripleTimer = 360; }
-        if (p.type === 'laser'){ laserTimer = 360; }
-        if (p.type === 'score'){ scoreTimer = 600; }
+        if (p.type === 'apbullet'){ apCharges++; }
+        if (p.type === 'speed'){ speedCharges++; }
+        if (p.type === 'triple'){ tripleCharges++; }
+        if (p.type === 'laser'){ laserCharges++; }
+        if (p.type === 'score'){ scoreCharges++; }
         if (p.type === 'life'){ lives++; livesEl.textContent = lives; }
         if (p.type === 'repair'){
           if (base.alive) base.hp = Math.min(base.hp+2, base.maxHp);
@@ -1704,17 +1719,10 @@
     }
     pickups = pickups.filter(p=>!p.dead);
 
-    // 护盾/基地护盾/冰冻/穿甲弹倒计时
-    if (shieldTimer > 0) shieldTimer-=dt;
-    if (playerInvTimer > 0) playerInvTimer-=dt;
-    if (baseShieldTimer > 0) baseShieldTimer-=dt;
+    // 冰冻效果倒计时（冻结是即时效果，不是次数制）
     if (freezeTimer > 0) freezeTimer-=dt;
-    if (apBulletTimer > 0) apBulletTimer-=dt;
-    // 新强化道具倒计时
-    if (speedTimer > 0) speedTimer-=dt;
-    if (tripleTimer > 0) tripleTimer-=dt;
-    if (laserTimer > 0) laserTimer-=dt;
-    if (scoreTimer > 0) scoreTimer-=dt;
+    // 加速移动状态：无按键自动结束
+    if (!(keys['w']||keys['s']||keys['a']||keys['d']||keys['ArrowUp']||keys['ArrowDown']||keys['ArrowLeft']||keys['ArrowRight'])) speedActive = false;
     // 本关惩罚：失血（每秒-1，最低留1，不致死）
     if (levelDebuffs.includes('drain')){
       drainTick += dt;
@@ -1731,31 +1739,31 @@
     if (shakeTimer > 0) shakeTimer-=dt;
     if (comboTimer > 0) { comboTimer-=dt; if (comboTimer <= 0) comboCount = 0; }
     if (comboDisplayTimer > 0) comboDisplayTimer-=dt;
-    setText(bufShieldEl, shieldTimer > 0 ? (Math.ceil(shieldTimer/60)+'秒') : '-');
+    setText(bufShieldEl, shieldCharges > 0 ? '×'+shieldCharges : '-');
     setText(bufBulletEl, bulletUpgraded ? '升级' : '普通');
     setText(bufDoubleEl, doubleShot ? '二连射' : '-');
     if (base && base.alive) {
       const hp = base.hp;
-      setText(bufBaseEl, baseShieldTimer > 0 ? ('🛡'+Math.ceil(baseShieldTimer/60)+'秒') : '❤'.repeat(Math.max(0,hp)));
+      setText(bufBaseEl, baseShieldCharges > 0 ? ('🛡×'+baseShieldCharges) : '❤'.repeat(Math.max(0,hp)));
     } else {
       setText(bufBaseEl, '💀');
     }
-    setText(bufFreezeEl, freezeTimer > 0 ? (Math.ceil(freezeTimer/60)+'秒') : '-');
-    setText(bufApEl, apBulletTimer > 0 ? (Math.ceil(apBulletTimer/60)+'秒') : '-');
-    // 新强化道具面板
-    setText(bufSpeedEl, speedTimer > 0 ? (Math.ceil(speedTimer/60)+'秒') : '-');
-    setText(bufTripleEl, tripleTimer > 0 ? (Math.ceil(tripleTimer/60)+'秒') : '-');
-    setText(bufLaserEl, laserTimer > 0 ? (Math.ceil(laserTimer/60)+'秒') : '-');
-    setText(bufScoreEl, scoreTimer > 0 ? (Math.ceil(scoreTimer/60)+'秒') : '-');
+    setText(bufFreezeEl, freezeTimer > 0 ? '❄' : '-');
+    // 次数制强化道具面板
+    setText(bufApEl, apCharges > 0 ? ('穿甲×'+apCharges) : '-');
+    setText(bufSpeedEl, speedCharges > 0 ? ('加速×'+speedCharges) : '-');
+    setText(bufTripleEl, tripleCharges > 0 ? ('三连×'+tripleCharges) : '-');
+    setText(bufLaserEl, laserCharges > 0 ? ('激光×'+laserCharges) : '-');
+    setText(bufScoreEl, scoreCharges > 0 ? ('双倍×'+scoreCharges) : '-');
     // 武器面板
     setText(wpnBullet, bulletUpgraded ? '🔥 强化' : '普通');
     if (wpnBullet.style.color !== (bulletUpgraded ? '#ffaa00' : '')) wpnBullet.style.color = bulletUpgraded ? '#ffaa00' : '';
-    setText(wpnShield, shieldTimer > 0 ? ('🛡 ' + Math.ceil(shieldTimer/60) + '秒') : '-');
-    if (wpnShield.style.color !== (shieldTimer > 0 ? '#44aaff' : '')) wpnShield.style.color = shieldTimer > 0 ? '#44aaff' : '';
+    setText(wpnShield, shieldCharges > 0 ? ('🛡 ×' + shieldCharges) : '-');
+    if (wpnShield.style.color !== (shieldCharges > 0 ? '#44aaff' : '')) wpnShield.style.color = shieldCharges > 0 ? '#44aaff' : '';
     setText(wpnDouble, doubleShot ? '💥 二连' : '-');
     if (wpnDouble.style.color !== (doubleShot ? '#ff66aa' : '')) wpnDouble.style.color = doubleShot ? '#ff66aa' : '';
-    setText(wpnAp, apBulletTimer > 0 ? ('⚡ ' + Math.ceil(apBulletTimer/60) + '秒') : '-');
-    if (wpnAp.style.color !== (apBulletTimer > 0 ? '#ffcc00' : '')) wpnAp.style.color = apBulletTimer > 0 ? '#ffcc00' : '';
+    setText(wpnAp, apCharges > 0 ? ('⚡ ×' + apCharges) : '-');
+    if (wpnAp.style.color !== (apCharges > 0 ? '#ffcc00' : '')) wpnAp.style.color = apCharges > 0 ? '#ffcc00' : '';
     // 连杀显示
     if (comboCount >= 2 && comboDisplayTimer > 0) {
       comboRow.style.display = '';
@@ -1856,11 +1864,13 @@
   function nextLevel(){
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0; hitStopTimer = 0;
     enemiesKilledThisLevel = 0;
-    shieldTimer = 0; bulletUpgraded = false; doubleShot = false; baseShieldTimer = 0; freezeTimer = 0; apBulletTimer = 0;
-    speedTimer = 0; tripleTimer = 0; laserTimer = 0; scoreTimer = 0;
+    enemiesSpawned = 0; // 配额制：本关已生成数清零
+    enemiesTotal = level % 5 === 0 ? 10 + level : (endlessMode ? 15 + level * 2 : 20 + (level-1) * 2);
+    shieldCharges = 0; bulletUpgraded = false; doubleShot = false; baseShieldCharges = 0; freezeTimer = 0; apCharges = 0;
+    speedCharges = 0; tripleCharges = 0; laserCharges = 0; scoreCharges = 0; speedActive = false;
     p1SlideTimer = 0; p1SlideDir = null; p1SlideSpeed = 0; p2SlideTimer = 0; p2SlideDir = null; p2SlideSpeed = 0;
     comboCount = 0; comboTimer = 0; comboDisplayTimer = 0;
-    spawnTimer = endlessMode ? 120 : 0; waveSpawned = false; airdropTimer = 0;
+    waveSpawned = false; airdropTimer = 0;
     levelIntroTimer = 90; // 1.5秒关卡过场
     rollLevelDebuffs(); // 越靠后关卡越容易吃到随机惩罚
     sfx.intro();
@@ -1872,9 +1882,12 @@
     } else {
       emptyMap();
       spawnPlayer(false);
-      const count = Math.min(1 + (level-1), 4);
+      // 开局先出一批（按等级递增），之后按时间节奏持续生成
+      const count = Math.min(2 + Math.floor(level / 2), 6);
       for (let i=0;i<count;i++) spawnEnemy();
     }
+    // 开局生成后开始计时下一次生成
+    spawnTimer = endlessMode ? 150 : 220;
   }
 
   // ===== 像素绘制 =====
@@ -1982,7 +1995,7 @@
       fillRect(x+2,y+2,TILE-4,TILE-4, baseColor,g);
       fillRect(x+4,y+4,TILE-8,TILE-8, innerColor,g);
       fillRect(x+6,y+6,4,4, baseColor,g);
-      if (baseShieldTimer > 0){ g.strokeStyle='#88ff44'; g.lineWidth=2; g.strokeRect(x,y,TILE,TILE); }
+      if (baseShieldCharges > 0){ g.strokeStyle='#88ff44'; g.lineWidth=2; g.strokeRect(x,y,TILE,TILE); }
     } else if (v===5){ // 水域 — deeper blue, brighter ripples (wtime 由主循环传入，避免每瓦片 Date.now())
       const t = wtime || 0;
       fillRect(x,y,TILE,TILE,'#0a2a4a',g);
@@ -2124,7 +2137,7 @@
     for (const b of bullets){
       const gc = b.from==='p' ? '#22cc22' : '#ff6600';
       const bc = b.from==='p' ? '#6cff6c' : '#ff5555';
-      if (apBulletTimer>0 && b.from==='p'){
+      if (b.ap){
         fillRect(b.x-2,b.y-2,b.w+4,b.h+4,'#aa8800');
         fillRect(b.x-1,b.y-1,b.w+2,b.h+2,'#ffcc00');
         fillRect(b.x,b.y,b.w,b.h,'#ffdd44');
@@ -2136,7 +2149,7 @@
     // 坦克（在草地下方）
     if (player.alive) {
       drawTank(player);
-      if (shieldTimer > 0){
+      if (shieldCharges > 0){
         ctx.strokeStyle = '#44aaff';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -2144,7 +2157,7 @@
         ctx.stroke();
       }
       if (p1SlideTimer > 0) { ctx.fillStyle='rgba(100,180,255,0.3)'; ctx.fillRect(player.x,player.y,TILE,TILE); }
-      if (speedTimer > 0) { ctx.fillStyle='rgba(120,255,120,0.18)'; ctx.fillRect(player.x,player.y,TILE,TILE); }
+      if (speedActive) { ctx.fillStyle='rgba(120,255,120,0.18)'; ctx.fillRect(player.x,player.y,TILE,TILE); }
       if (levelDebuffs.includes('vuln') && Math.floor(Date.now()/150) % 2 === 0) { ctx.fillStyle='rgba(255,60,60,0.25)'; ctx.fillRect(player.x,player.y,TILE,TILE); }
     }
     if (dualMode && player2 && player2.alive) { drawTank(player2); if (p2SlideTimer > 0) { ctx.fillStyle='rgba(100,180,255,0.3)'; ctx.fillRect(player2.x,player2.y,TILE,TILE); } }
@@ -2241,16 +2254,20 @@
     bgmStop();
     score=0; level=1; lives=3; p2lives=3; running=true; paused=false;
     enemiesKilledThisLevel=0;
+    enemiesSpawned=0;
+    enemiesTotal = level % 5 === 0 ? 10 + level : (endlessMode ? 15 + level * 2 : 20 + (level-1) * 2);
     bullets=[]; particles=[]; enemies=[]; spawnTimer=0; pickups=[]; boss=null; ally=null; allyRespawnTimer=0;
-    shieldTimer=0; bulletUpgraded=false; doubleShot=false; baseShieldTimer=0; freezeTimer=0; pickupTimer=0;
-    speedTimer=0; tripleTimer=0; laserTimer=0; scoreTimer=0;
+    shieldCharges=0; bulletUpgraded=false; doubleShot=false; baseShieldCharges=0; freezeTimer=0; pickupTimer=0;
+    apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
     p1SlideTimer=0; p1SlideDir=null; p1SlideSpeed=0; p2SlideTimer=0; p2SlideDir=null; p2SlideSpeed=0;
     comboCount=0; comboTimer=0; comboDisplayTimer=0;
     permHP=0; permLives=0; permSpeed=0; upgradePending=false;
     playerHP=5; playerMaxHP=5; waveSpawned=false; airdropTimer=0;
     document.getElementById('levelLabel').textContent = endlessMode ? '波次' : '关卡';
     emptyMap(); spawnPlayer();
-    spawnTimer = endlessMode ? 120 : 0;
+    // 开局先出一批
+    if (!endlessMode) { const count = Math.min(2 + Math.floor(level / 2), 6); for (let i=0;i<count;i++) spawnEnemy(); }
+    spawnTimer = endlessMode ? 150 : 220; // 开局生成后开始计时下一次
     levelIntroTimer = 90; // 开局过场
     rollLevelDebuffs();
     sfx.intro();
@@ -2311,8 +2328,12 @@
     lastTime = 0; clearTimeout(respawnTimer); clearTimeout(p2respawnTimer); shakeTimer = 0; hitStopTimer = 0;
     running = true;
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0;
-    speedTimer=0; tripleTimer=0; laserTimer=0; scoreTimer=0;
-    spawnTimer = endlessMode ? 120 : 0; pickupTimer = 0; airdropTimer = 0;
+    enemiesKilledThisLevel = 0;
+    enemiesSpawned = 0;
+    enemiesTotal = level % 5 === 0 ? 10 + level : (endlessMode ? 15 + level * 2 : 20 + (level-1) * 2);
+    shieldCharges=0; bulletUpgraded=false; doubleShot=false; baseShieldCharges=0; freezeTimer=0;
+    apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
+    pickupTimer = 0; airdropTimer = 0;
     rollLevelDebuffs();
     if (level % 5 === 0){
       generateBossArena();
@@ -2322,7 +2343,10 @@
     } else {
       emptyMap();
       spawnPlayer();
+      const count = Math.min(2 + Math.floor(level / 2), 6);
+      for (let i=0;i<count;i++) spawnEnemy();
     }
+    spawnTimer = endlessMode ? 150 : 220; // 开局生成后开始计时下一次
     overlay.classList.add('hidden');
     document.getElementById('upgradeOverlay').classList.add('hidden');
     paused = false;
@@ -2522,7 +2546,7 @@
     triggerGameOver() { if (running) gameOver(false); },
     triggerPlayerDeath() {
       if (!running || !player || !player.alive) return false;
-      if (cheatInvincible || shieldTimer > 0) return false;
+      if (cheatInvincible || shieldCharges > 0) return false;
       playerHP = 0; updateHPDisplay();
       explode(player.x+player.w/2,player.y+player.h/2,player.color);
       player.alive = false; lives--; livesEl.textContent = lives;
@@ -2538,6 +2562,11 @@
     get playerAlive() { return player !== null && player.alive; },
     get score() { return score; },
     get enemiesCount() { return enemies.length; },
+    get enemiesSpawned() { return enemiesSpawned; },
+    get enemiesTotal() { return enemiesTotal; },
+    get killedCount() { return enemiesKilledThisLevel; },
+    playerInvincibleOn() { cheatInvincible = true; document.getElementById('cheatRow').style.display = 'flex'; },
+    playerInvincibleOff() { cheatInvincible = false; document.getElementById('cheatRow').style.display = 'none'; },
     get lives() { return lives; },
     setLevel(lv) { level = lv; levelEl.textContent = lv; rollLevelDebuffs(); },
     clearEnemies() { enemies = []; },
@@ -2602,22 +2631,28 @@
       return true;
     },
     clearLevelDebuffs() { levelDebuffs = []; blindPhase = 0; drainTick = 0; renderLevelDebuffRow(); },
-    // 强化道具测试钩子
-    applyBuff(type, frames) {
-      if (type === 'speed'){ speedTimer = frames === undefined ? 420 : frames; }
-      else if (type === 'triple'){ tripleTimer = frames === undefined ? 360 : frames; }
-      else if (type === 'laser'){ laserTimer = frames === undefined ? 360 : frames; }
-      else if (type === 'score'){ scoreTimer = frames === undefined ? 600 : frames; }
+    // 强化道具测试钩子（次数制）
+    applyBuff(type, n) {
+      if (type === 'shield'){ shieldCharges = n === undefined ? 1 : n; }
+      else if (type === 'baseshield'){ baseShieldCharges = n === undefined ? 1 : n; }
+      else if (type === 'apbullet'){ apCharges = n === undefined ? 1 : n; }
+      else if (type === 'speed'){ speedCharges = n === undefined ? 1 : n; }
+      else if (type === 'triple'){ tripleCharges = n === undefined ? 1 : n; }
+      else if (type === 'laser'){ laserCharges = n === undefined ? 1 : n; }
+      else if (type === 'score'){ scoreCharges = n === undefined ? 1 : n; }
       else return false;
       return true;
     },
-    get buffTimers() { return { speed: speedTimer, triple: tripleTimer, laser: laserTimer, score: scoreTimer }; },
+    get buffCharges() { return { shield: shieldCharges, baseShield: baseShieldCharges, ap: apCharges, speed: speedCharges, triple: tripleCharges, laser: laserCharges, score: scoreCharges }; },
     // 玩家实际移动速度倍率（与 update 中同公式）
     get playerSpeedFactor() {
-      return (levelDebuffs.includes('slow') ? 0.6 : 1) * (speedTimer > 0 ? 1.4 : 1);
+      return (levelDebuffs.includes('slow') ? 0.6 : 1) * (speedActive ? 1.4 : 1);
     },
+    get speedActiveState() { return speedActive; },
     hitPlayer() {
       if (!player || !player.alive) return false;
+      // 模拟真实子弹命中：护盾次数优先抵挡
+      if (shieldCharges > 0){ shieldCharges--; return true; }
       playerHP -= levelDebuffs.includes('vuln') ? 2 : 1;
       updateHPDisplay();
       return true;
