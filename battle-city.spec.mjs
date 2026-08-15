@@ -234,3 +234,93 @@ test('G: upgrade screen appears on level complete', async ({ page }) => {
   await page.waitForTimeout(500);
   await expect(page.locator('#upgradeOverlay')).toHaveClass(/hidden/);
 });
+
+test('H: level debuff (slow) applies whole level and panel shows it', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(500);
+  const ok = await page.evaluate(() => window.__test.addLevelDebuff('slow'));
+  expect(ok).toBe(true);
+  await expect(page.locator('#levelDebuffRow')).toBeVisible();
+  await expect(page.locator('#levelDebuffEl')).toHaveText(/减速/);
+  const list = await page.evaluate(() => window.__test.levelDebuffs);
+  expect(list).toContain('slow');
+});
+
+test('I: level debuff (reverse) inverts controls', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(500);
+  await page.evaluate(() => window.__test.addLevelDebuff('reverse'));
+  await expect(page.locator('#levelDebuffEl')).toHaveText(/反向/);
+  // 反向时按 w 应向下移动（y 增大），按 s 应向上（y 减小）
+  const yBefore = await page.evaluate(() => window.__test.playerY);
+  await page.keyboard.down('w');
+  await page.waitForTimeout(300);
+  await page.keyboard.up('w');
+  const yAfterW = await page.evaluate(() => window.__test.playerY);
+  expect(yAfterW).toBeGreaterThan(yBefore);
+  await page.keyboard.down('s');
+  await page.waitForTimeout(300);
+  await page.keyboard.up('s');
+  const yAfterS = await page.evaluate(() => window.__test.playerY);
+  expect(yAfterS).toBeLessThan(yAfterW);
+});
+
+test('J: level debuff (drain) reduces HP over time but never kills', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(500);
+  await page.keyboard.press('o'); // 无敌，隔离敌人伤害
+  await page.keyboard.press('i'); // 清场
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__test.addLevelDebuff('drain'));
+  await expect(page.locator('#levelDebuffEl')).toHaveText(/失血/);
+  await page.waitForTimeout(2500);
+  const hp = await page.evaluate(() => window.__test.playerHP);
+  expect(hp).toBeGreaterThan(0);
+  expect(hp).toBeLessThan(5);
+  const alive = await page.evaluate(() => window.__test.playerAlive);
+  expect(alive).toBe(true);
+});
+
+test('K: level debuff (vuln) makes player take double damage', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(500);
+  await page.keyboard.press('o'); // 无敌，隔离敌人伤害
+  await page.keyboard.press('i'); // 清场
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__test.addLevelDebuff('vuln'));
+  await expect(page.locator('#levelDebuffEl')).toHaveText(/易伤/);
+  const hpBefore = await page.evaluate(() => window.__test.playerHP);
+  await page.evaluate(() => window.__test.hitPlayer());
+  const hpAfter = await page.evaluate(() => window.__test.playerHP);
+  expect(hpBefore - hpAfter).toBe(2);
+});
+
+test('L: speed buff item makes player faster and shows timer', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(500);
+  const ok = await page.evaluate(() => window.__test.applyBuff('speed', 420));
+  expect(ok).toBe(true);
+  await expect(page.locator('#bufSpeed')).toHaveText('7秒');
+  // 加速期间移动速度倍率应为 1.4（与减速惩罚叠加逻辑同源）
+  const buffed = await page.evaluate(() => window.__test.playerSpeedFactor);
+  expect(buffed).toBeCloseTo(1.4, 5);
+  await page.evaluate(() => window.__test.applyBuff('speed', 0));
+  await page.waitForTimeout(200);
+  const normal = await page.evaluate(() => window.__test.playerSpeedFactor);
+  expect(normal).toBeCloseTo(1.0, 5);
+  await expect(page.locator('#bufSpeed')).toHaveText('-');
+});
+
+test('M: score buff item doubles score gains', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(1500);
+  await page.evaluate(() => window.__test.applyBuff('score', 600));
+  await expect(page.locator('#bufScore')).toHaveText('10秒');
+  const before = await page.evaluate(() => window.__test.score);
+  const enemyCount = await page.evaluate(() => window.__test.enemiesCount);
+  expect(enemyCount).toBeGreaterThan(0);
+  await page.keyboard.press('i'); // 击杀所有敌人，每个 100 分 → 双倍 200
+  await page.waitForTimeout(300);
+  const after = await page.evaluate(() => window.__test.score);
+  expect(after - before).toBe(enemyCount * 200);
+});
