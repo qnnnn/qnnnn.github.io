@@ -284,9 +284,8 @@ test('J: level debuff (drain) reduces HP over time but never kills', async ({ pa
 test('K: level debuff (vuln) makes player take double damage', async ({ page }) => {
   await page.click('#btn1p');
   await page.waitForTimeout(500);
-  await page.keyboard.press('o'); // 无敌，隔离敌人伤害
-  await page.keyboard.press('i'); // 清场
-  await page.waitForTimeout(300);
+  await page.keyboard.press('i'); // 清场（无敌不可用：hitPlayer 在无敌时无伤害）
+  await page.waitForTimeout(1800); // 等开局 1.5 秒复活无敌过期
   await page.evaluate(() => window.__test.addLevelDebuff('vuln'));
   await expect(page.locator('#levelDebuffEl')).toHaveText(/易伤/);
   const hpBefore = await page.evaluate(() => window.__test.playerHP);

@@ -924,6 +924,19 @@
     levelDebuffRow.style.display = 'flex';
   }
 
+  // 道具加权选择：护盾/基地护盾权重减半，避免护盾泛滥
+  const PICKUP_WEIGHT = { shield: 0.5, baseshield: 0.5 };
+  function weightedPick(arr){
+    let total = 0;
+    for (const t of arr) total += (PICKUP_WEIGHT[t] || 1);
+    let r = Math.random() * total;
+    for (const t of arr){
+      r -= (PICKUP_WEIGHT[t] || 1);
+      if (r <= 0) return t;
+    }
+    return arr[arr.length-1];
+  }
+
   function spawnPickup(){
     if (pickups.length >= 3) return;
     // 次数制道具可叠加（shield/双发等永久型仍需判断）；其他次数型随时可生成
@@ -953,7 +966,7 @@
       let blocked=false;
       for (const e of enemies) if (rectsOverlap({x,y,w:TILE,h:TILE},e)){ blocked=true; break; }
       if (blocked) continue;
-      const type = available[(Math.random()*available.length)|0];
+      const type = weightedPick(available);
       pickups.push({x,y,w:TILE,h:TILE,type});
       return;
     }
@@ -968,7 +981,7 @@
       return true;
     });
     if (available.length===0) return;
-    const type = available[(Math.random()*available.length)|0];
+    const type = weightedPick(available);
     pickups.push({x:e.x, y:e.y, w:TILE, h:TILE, type});
   }
 
@@ -1197,6 +1210,27 @@
   function addFloater(x, y, text, color, size){
     if (floaters.length > 24) floaters.shift();
     floaters.push({ x, y, text, color: color||'#fff', size: size||9, life: 45, vy: -0.6 });
+  }
+
+  // 护盾上限（防无限囤积变无敌）
+  const SHIELD_MAX = 3;
+  const BASE_SHIELD_MAX = 3;
+  // 拾取护盾（已满则折算 30 分）
+  function gainShield(n){
+    if (shieldCharges >= SHIELD_MAX){
+      addScore(30 * n);
+      addFloater(player.x+8, player.y-8, '护盾已满 +'+String(30*n), '#44aaff', 9);
+      return;
+    }
+    shieldCharges = Math.min(SHIELD_MAX, shieldCharges + n);
+  }
+  function gainBaseShield(n){
+    if (baseShieldCharges >= BASE_SHIELD_MAX){
+      addScore(30 * n);
+      addFloater(base.c*TILE+8, base.r*TILE-8, '基地护盾已满 +'+String(30*n), '#88ff44', 9);
+      return;
+    }
+    baseShieldCharges = Math.min(BASE_SHIELD_MAX, baseShieldCharges + n);
   }
 
   function update(dt) {
@@ -1437,7 +1471,7 @@
       if (e.type === 'suicide' && e.alive) {
         let hit = false;
         if (player.alive && rectsOverlap(e, player)){
-          if (shieldCharges > 0){ shieldCharges--; explode(e.x+e.w/2,e.y+e.h/2,'#4af'); }
+          if (shieldCharges > 0 && !cheatInvincible && playerInvTimer <= 0){ shieldCharges--; explode(e.x+e.w/2,e.y+e.h/2,'#4af'); }
           else if (!cheatInvincible && playerInvTimer <= 0){
             playerHP = Math.max(playerHP - (levelDebuffs.includes('vuln') ? 4 : 2), 0); // 易伤惩罚：双倍
             dmgFlash = 18; // 受击红闪
@@ -1793,7 +1827,8 @@
         }
         if (player.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},player)){
           if (cheatInvincible || shieldCharges > 0 || playerInvTimer > 0) {
-            if (shieldCharges > 0) shieldCharges--; // 护盾次数抵挡一次
+            // 无敌/复活保护期间不消耗护盾次数（避免浪费）
+            if (shieldCharges > 0 && !cheatInvincible && playerInvTimer <= 0) shieldCharges--;
             b.dead=true; explode(b.x,b.y, playerInvTimer>0?'#ff0':cheatInvincible?'#ff0':'#4af');
             continue;
           }
@@ -1968,10 +2003,10 @@
         if (p.dead) continue;
         if (!rectsOverlap(player,p)) continue;
         sfx.powerup();
-        if (p.type === 'shield'){ shieldCharges++; }          // 护盾次数 +1
+        if (p.type === 'shield'){ gainShield(1); }          // 护盾次数 +1（上限 3）
         if (p.type === 'bullet'){ bulletUpgraded = true; }
         if (p.type === 'doubleshot'){ doubleShot = true; }
-        if (p.type === 'baseshield'){ baseShieldCharges++; }  // 基地护盾次数 +1
+        if (p.type === 'baseshield'){ gainBaseShield(1); }  // 基地护盾次数 +1（上限 3）
         if (p.type === 'freeze'){ freezeTimer = 180; }
         if (p.type === 'bomb'){
           for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; totalKills++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); if (e.type==='splitter') splitEnemy(e); addScore(100); }
@@ -2007,10 +2042,10 @@
         if (p.dead) continue;
         if (!rectsOverlap(player2,p)) continue;
         sfx.powerup();
-        if (p.type === 'shield'){ shieldCharges++; }
+        if (p.type === 'shield'){ gainShield(1); }
         if (p.type === 'bullet'){ bulletUpgraded = true; }
         if (p.type === 'doubleshot'){ doubleShot = true; }
-        if (p.type === 'baseshield'){ baseShieldCharges++; }
+        if (p.type === 'baseshield'){ gainBaseShield(1); }
         if (p.type === 'freeze'){ freezeTimer = 180; }
         if (p.type === 'bomb'){
           for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; totalKills++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); if (e.type==='splitter') splitEnemy(e); addScore(100); }
@@ -2043,6 +2078,7 @@
 
     // 冰冻效果倒计时（冻结是即时效果，不是次数制）
     if (freezeTimer > 0) freezeTimer-=dt;
+    if (playerInvTimer > 0) playerInvTimer-=dt; // 复活无敌计时
     if (dmgFlash > 0) dmgFlash-=dt;
     if (bossWarn > 0) bossWarn-=dt;
     // 加速移动状态：无按键自动结束
@@ -2700,6 +2736,16 @@
   // ===== 更新日志 =====
   const CHANGELOG = [
     {
+      ver: 'v1.17', date: '2026-08-15',
+      tags: [['fix','修复'],['other','平衡']],
+      desc: [
+        '修复严重 bug：复活无敌计时未递减导致玩家永久无敌（实为"护盾无敌"的真相）',
+        '护盾/基地护盾次数上限 3：拾取溢出折算 30 分，防止无限囤积',
+        '无敌/复活保护期间不再消耗护盾次数',
+        '道具生成加权：护盾/基地护盾出现概率减半',
+      ],
+    },
+    {
       ver: 'v1.16', date: '2026-08-15',
       tags: [['new','玩法'],['other','界面']],
       desc: [
@@ -3274,7 +3320,8 @@
     get speedActiveState() { return speedActive; },
     hitPlayer() {
       if (!player || !player.alive) return false;
-      // 模拟真实子弹命中：护盾次数优先抵挡
+      // 模拟真实子弹命中：无敌/复活保护不消耗护盾，护盾次数优先抵挡
+      if (cheatInvincible || playerInvTimer > 0) return true;
       if (shieldCharges > 0){ shieldCharges--; return true; }
       playerHP -= levelDebuffs.includes('vuln') ? 2 : 1;
       updateHPDisplay();
