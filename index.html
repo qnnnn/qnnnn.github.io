@@ -459,6 +459,15 @@
   let dmgFlash = 0;   // 玩家受击红闪计时（帧）
   let bossWarn = 0;   // Boss 出场警告计时
   let totalKills = 0, maxCombo = 0; // 生涯统计
+  let highScore = 0; // 最高分（localStorage 持久化）
+  try { highScore = parseInt(localStorage.getItem('battlecity_highscore') || '0', 10) || 0; } catch(_) {}
+  // 主菜单显示最高分（HTML 初始文案由 JS 补上）
+  function renderMenuHighScore(){
+    const ov = document.getElementById('ovText');
+    if (highScore > 0 && !ov.innerHTML.includes('最高分')){
+      ov.innerHTML += '<br><span style="color:#6cff6c">🏆 最高分 ' + highScore + '</span>';
+    }
+  }
   const ICE_SLIDE_SPEED_FACTOR = 0.7;
   const ICE_SLIDE_DURATION = 8;
   let p1SlideTimer = 0, p1SlideDir = null, p1SlideSpeed = 0;
@@ -2550,6 +2559,42 @@
   // ===== 更新日志 =====
   const CHANGELOG = [
     {
+      ver: 'v1.14', date: '2026-08-15',
+      tags: [['new','新增'],['other','界面']],
+      desc: [
+        '新增最高分记录（localStorage 持久化，游戏结束显示新纪录 🏆，主菜单显示最高分）',
+      ],
+    },
+    {
+      ver: 'v1.13', date: '2026-08-15',
+      tags: [['new','玩法'],['other','界面']],
+      desc: [
+        '低血量警示：HP≤1 时红色脉动边框',
+        '游戏结束显示统计（本局击杀 / 最高连杀）',
+        '暂停时画布显示"已暂停"遮罩',
+      ],
+    },
+    {
+      ver: 'v1.12', date: '2026-08-15',
+      tags: [['new','玩法'],['other','手机']],
+      desc: [
+        '手机端新增虚拟摇杆反馈（滑动时显示，松开隐藏）',
+        '斜向移动精确化：主导轴选向 + 支持对角移动（速度归一化）',
+        '触屏按钮加大 + 刘海屏安全区适配 + 按压反馈',
+      ],
+    },
+    {
+      ver: 'v1.11', date: '2026-08-15',
+      tags: [['new','玩法'],['perf','优化']],
+      desc: [
+        '得分飘字：击杀/拾取时画布飘出 +分数，打击感大幅提升',
+        '玩家受击红闪 + 道具磁吸（2.5 格内自动吸附）',
+        'Boss 出场警告横幅 + 冰冻敌人冰晶闪烁',
+        '新增 3 个永久升级：永久火力/永久双发/开局护盾（升级界面 6 选 1）',
+        '面板显示本关剩余敌人',
+      ],
+    },
+    {
       ver: 'v1.10', date: '2026-08-15',
       tags: [['new','新增'],['other','界面']],
       desc: [
@@ -2641,12 +2686,17 @@
   function gameOver(win){
     lastTime = 0; running=false; document.body.classList.remove('running'); bgmStop(); shakeTimer = 0;
     comboCount=0; comboTimer=0; comboDisplayTimer=0;
+    // 最高分
+    const newRecord = score > highScore;
+    if (newRecord){ highScore = score; try { localStorage.setItem('battlecity_highscore', String(highScore)); } catch(_){} }
     ovTitle.textContent = win ? '胜利！' : '游戏结束';
     if (win) sfx.victory(); else sfx.gameover();
     const modeLabel = endlessMode ? '波次' : '关卡';
     let extra = '';
     if (dualMode) extra = '<br>P1生命：'+lives+' &nbsp; P2生命：'+p2lives;
-    ovText.innerHTML = '最终得分：<b style="color:#ffd24d">'+score+'</b><br>到达'+modeLabel+'：'+level+extra+
+    const rec = newRecord ? '<br><b style="color:#6cff6c">★ 新纪录！</b>' : '';
+    ovText.innerHTML = '最终得分：<b style="color:#ffd24d">'+score+'</b>'+rec+
+      '<br><span style="color:#888">最高分 '+highScore+'</span><br>到达'+modeLabel+'：'+level+extra+
       '<br><span style="color:#888">本局击杀 '+totalKills+' &nbsp; 最高连杀 ×'+maxCombo+'</span>';
     btnRetry.style.display = '';
     document.getElementById('btnResume').style.display = 'none';
@@ -2659,6 +2709,7 @@
     document.body.classList.remove('running');
     ovTitle.textContent = '坦克大战';
     ovText.innerHTML = '<span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！';
+    renderMenuHighScore();
     btnRetry.style.display = 'none';
     document.getElementById('btnResume').style.display = '';
     overlay.classList.remove('hidden');
@@ -2913,12 +2964,17 @@
   }
   setupTouch();
 
+  // 静音状态持久化
+  try { muted = localStorage.getItem('battlecity_muted') === '1'; } catch(_){}
+  document.getElementById('muteLabel').textContent = muted ? '🔇 关闭' : '🔊 开启';
   document.getElementById('muteBox').addEventListener('click', ()=>{
     muted = !muted;
     document.getElementById('muteLabel').textContent = muted ? '🔇 关闭' : '🔊 开启';
+    try { localStorage.setItem('battlecity_muted', muted ? '1' : '0'); } catch(_){}
     if (muted) bgmStop(); else bgmPlay();
   });
 
+  renderMenuHighScore();
   loop();
 
   // Test hooks for Playwright E2E tests
