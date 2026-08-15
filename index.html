@@ -771,7 +771,9 @@
       cooldown: 0, alive: true,
       color: bLevel === 1 ? '#aa44cc' : bLevel === 2 ? '#dd3333' : '#ffaa00',
       moveTimer: 0, moveDir: null, enraged: false,
-      phaseTriggered: false, phaseBurstCooldown: 0, phaseFlash: 0
+      phaseTriggered: false, phaseBurstCooldown: 0, phaseFlash: 0,
+      // 三阶段：phase3 狂暴（25% 血以下）
+      phase3: false, ringCooldown: 0, summonCooldown: 0
     };
     bossWarn = 60; // Boss 出场警告横幅
     shake(6, 2);
@@ -799,6 +801,7 @@
       else if (t.type === 'suicide'){ t.color = '#ff2222'; t.speed *= 1.3; }
       else if (t.type === 'armored' || t.type === 'elite') t.color = '#cc4444';
       else if (t.type === 'rapid') t.color = '#ff44aa';
+      else if (t.type === 'splitter'){ t.color = '#44ffaa'; t.speed *= 1.15; }
     }
     return t;
   }
@@ -935,6 +938,30 @@
     pickups.push({x:e.x, y:e.y, w:TILE, h:TILE, type});
   }
 
+  // 分裂者：死亡时分裂成 2 个小分裂体（快速小兵）
+  function splitEnemy(e){
+    const mini = makeTank(false, {hp:1, rapid:false, type:'normal'});
+    mini.color = '#66ffcc';
+    mini.speed = 1.1;
+    const spots = [[-TILE,0],[TILE,0],[0,-TILE],[0,TILE]];
+    let spawned = 0;
+    for (const [ox,oy] of spots){
+      if (spawned >= 2) break;
+      const nx = e.x + ox, ny = e.y + oy;
+      if (nx>=0 && ny>=0 && nx+TILE<=W && ny+TILE<=H && canMove(mini, nx, ny)){
+        const m = makeTank(false, {hp:1, rapid:false, type:'normal'});
+        m.color = '#66ffcc';
+        m.speed = 1.1;
+        m.x = nx; m.y = ny;
+        m.dir = ox !== 0 ? (ox>0?'right':'left') : (oy>0?'down':'up');
+        m.invTimer = 20;
+        enemies.push(m);
+        spawned++;
+      }
+    }
+    if (spawned > 0) addFloater(e.x+8, e.y-2, '分裂!', '#66ffcc', 9);
+  }
+
   function spawnEnemy() {
     const spotsX = [2*TILE, ((COLS/2)|0)*TILE, (COLS-3)*TILE];
     const spotsY = 2*TILE;
@@ -944,25 +971,29 @@
     let enemyType = {hp:1, rapid:false, type:'normal'};
     const r = Math.random();
     if (level >= 7) {
-      if (r < 0.35) enemyType = {hp:3, rapid:true, type:'elite'};
-      else if (r < 0.50) enemyType = {hp:2, rapid:true, type:'rapid'};
-      else if (r < 0.62) enemyType = {hp:1, rapid:false, type:'suicide'};
-      else if (r < 0.74) enemyType = {hp:2, rapid:false, type:'armored'};
-      else if (r < 0.82) enemyType = {hp:1, rapid:false, type:'scout'};
+      if (r < 0.30) enemyType = {hp:3, rapid:true, type:'elite'};
+      else if (r < 0.42) enemyType = {hp:2, rapid:true, type:'rapid'};
+      else if (r < 0.52) enemyType = {hp:1, rapid:false, type:'suicide'};
+      else if (r < 0.63) enemyType = {hp:2, rapid:false, type:'armored'};
+      else if (r < 0.72) enemyType = {hp:1, rapid:false, type:'scout'};
+      else if (r < 0.85) enemyType = {hp:1, rapid:false, type:'splitter'};
     } else if (level >= 5) {
-      if (r < 0.25) enemyType = {hp:2, rapid:true, type:'rapid'};
-      else if (r < 0.40) enemyType = {hp:1, rapid:false, type:'suicide'};
-      else if (r < 0.60) enemyType = {hp:2, rapid:false, type:'armored'};
-      else if (r < 0.70) enemyType = {hp:1, rapid:false, type:'scout'};
+      if (r < 0.20) enemyType = {hp:2, rapid:true, type:'rapid'};
+      else if (r < 0.32) enemyType = {hp:1, rapid:false, type:'suicide'};
+      else if (r < 0.48) enemyType = {hp:2, rapid:false, type:'armored'};
+      else if (r < 0.58) enemyType = {hp:1, rapid:false, type:'scout'};
+      else if (r < 0.70) enemyType = {hp:1, rapid:false, type:'splitter'};
     } else if (level >= 4) {
-      if (r < 0.20) enemyType = {hp:1, rapid:false, type:'suicide'};
-      else if (r < 0.45) enemyType = {hp:2, rapid:false, type:'armored'};
-      else if (r < 0.55) enemyType = {hp:1, rapid:false, type:'scout'};
+      if (r < 0.18) enemyType = {hp:1, rapid:false, type:'suicide'};
+      else if (r < 0.40) enemyType = {hp:2, rapid:false, type:'armored'};
+      else if (r < 0.50) enemyType = {hp:1, rapid:false, type:'scout'};
+      else if (r < 0.60) enemyType = {hp:1, rapid:false, type:'splitter'};
     } else if (level >= 3) {
-      if (r < 0.30) enemyType = {hp:2, rapid:false, type:'armored'};
-      else if (r < 0.40) enemyType = {hp:1, rapid:false, type:'scout'};
+      if (r < 0.28) enemyType = {hp:2, rapid:false, type:'armored'};
+      else if (r < 0.38) enemyType = {hp:1, rapid:false, type:'scout'};
+      else if (r < 0.50) enemyType = {hp:1, rapid:false, type:'splitter'};
     } else if (level >= 2) {
-      if (r < 0.15) enemyType = {hp:1, rapid:false, type:'scout'};
+      if (r < 0.13) enemyType = {hp:1, rapid:false, type:'scout'};
     }
     for (const x of spotsX){
       if (!canMove({x,y:spotsY,w:TILE,h:TILE}, x, spotsY)) continue;
@@ -1453,33 +1484,47 @@
       }
     }
 
-    // Boss AI
+    // Boss AI（三阶段）
     if (boss && boss.alive && freezeTimer <= 0) {
       boss.moveTimer-=dt;
       if (boss.cooldown > 0) boss.cooldown-=dt;
       if (boss.phaseFlash > 0) boss.phaseFlash -= dt;
+      if (boss.ringCooldown > 0) boss.ringCooldown -= dt;
+      if (boss.summonCooldown > 0) boss.summonCooldown -= dt;
       // Phase 2 transition (one-shot at 50% HP)
       if (!boss.phaseTriggered && boss.hp <= boss.maxHp / 2) {
         boss.phaseTriggered = true;
         boss.phaseFlash = 30;
         shake(8, 3);
         if (!muted) { beep(200, 0.3, 'sawtooth', 0.08); }
+        addFloater(boss.x+16, boss.y-6, '狂暴模式!', '#ff6644', 12);
+      }
+      // Phase 3 transition (one-shot at 25% HP)：环形弹幕 + 召唤增援
+      if (!boss.phase3 && boss.hp <= boss.maxHp / 4) {
+        boss.phase3 = true;
+        boss.phaseFlash = 40;
+        shake(12, 5);
+        if (!muted) { beep(150, 0.4, 'sawtooth', 0.1); beep(100, 0.5, 'sawtooth', 0.1); }
+        addFloater(boss.x+16, boss.y-6, '最终狂暴!', '#ff2222', 13);
+        for (let i=0;i<3;i++) spawnEnemy(); // 召唤增援
       }
       const enraged = boss.hp <= boss.maxHp / 2;
-      const spd = enraged ? boss.speed * 1.15 : boss.speed;
+      const finalRage = boss.phase3;
+      const spd = boss.speed * (enraged ? 1.15 : 1) * (finalRage ? 1.2 : 1);
       if (boss.moveTimer <= 0 || !boss.moveDir) {
         const r = Math.random();
         if (r < 0.5) boss.moveDir = dirTowards(boss, player);
         else if (r < 0.7) boss.moveDir = Math.random()<0.5 ? 'left' : 'right';
         else boss.moveDir = dirTowards(boss, {x:base.c*TILE, y:base.r*TILE, alive:true});
         boss.dir = boss.moveDir;
-        boss.moveTimer = 25 + ((Math.random()*35)|0);
+        boss.moveTimer = finalRage ? 15 + ((Math.random()*20)|0) : 25 + ((Math.random()*35)|0);
       }
       const d = DIR[boss.moveDir];
       const nx = boss.x + d.x * spd * dt, ny = boss.y + d.y * spd * dt;
       if (canMove(boss, nx, ny)) { boss.x = nx; boss.y = ny; }
+      // 主射击（阶段 3 连发更多）
       if (boss.cooldown <= 0 && player && player.alive && hasLineOfSight(boss.x+boss.w/2, boss.y+boss.h/2, player.x+player.w/2, player.y+player.h/2)) {
-        const bulletCount = 1 + Math.floor(level / 10);
+        const bulletCount = (finalRage ? 3 : 1) + Math.floor(level / 10);
         const perp = d.x ? {x:0,y:-1} : {x:1,y:0};
         const cx = boss.x + boss.w/2, cy = boss.y + boss.h/2;
         for (let i=0;i<bulletCount;i++) {
@@ -1494,14 +1539,16 @@
         boss.cooldown = enraged ? 30 : 50;
         sfx.shoot();
       }
-      // Phase 2 burst (fires alongside normal shot)
+      // Phase 2 burst (扇形)
       if (boss.phaseTriggered) {
         if (boss.phaseBurstCooldown > 0) boss.phaseBurstCooldown -= dt;
         if (boss.phaseBurstCooldown <= 0 && player && player.alive && hasLineOfSight(boss.x+boss.w/2, boss.y+boss.h/2, player.x+player.w/2, player.y+player.h/2)) {
-          boss.phaseBurstCooldown = 60;
+          boss.phaseBurstCooldown = finalRage ? 45 : 60;
           const bcx = boss.x + boss.w/2, bcy = boss.y + boss.h/2;
           const bd = DIR[boss.dir];
-          for (let angle_offset of [-0.26, 0, 0.26]) {
+          const spread = finalRage ? 5 : 3;
+          for (let i=0;i<spread;i++) {
+            const angle_offset = (i - (spread-1)/2) * 0.26;
             const cos = Math.cos(angle_offset), sin = Math.sin(angle_offset);
             const vx = (bd.x * cos - bd.y * sin) * 3;
             const vy = (bd.y * cos + bd.x * sin) * 3;
@@ -1512,6 +1559,27 @@
             });
           }
           sfx.shoot();
+        }
+      }
+      // Phase 3 环形弹幕（8 方向）
+      if (finalRage) {
+        if (boss.ringCooldown <= 0) {
+          boss.ringCooldown = 50;
+          const bcx = boss.x + boss.w/2, bcy = boss.y + boss.h/2;
+          for (let i=0;i<8;i++) {
+            const ang = (i / 8) * Math.PI * 2;
+            bullets.push({
+              x: bcx - 2, y: bcy - 2,
+              vx: Math.cos(ang) * 2.2, vy: Math.sin(ang) * 2.2,
+              from: 'e', w: 4, h: 4
+            });
+          }
+          sfx.shoot();
+        }
+        // 周期召唤增援
+        if (boss.summonCooldown <= 0) {
+          boss.summonCooldown = 240;
+          spawnEnemy();
         }
       }
     }
@@ -1673,6 +1741,7 @@
           if (e.invTimer > 0) { b.dead=true; explode(b.x,b.y,'#888'); break; }
           e.hp--;
           if (e.hp <= 0){ enemiesKilledThisLevel++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); const pts = addScore(100); addFloater(e.x+8, e.y-2, '+'+pts, '#ffd24d', 10); spawnDrop(e); hitStopTimer = 4;
+            if (e.type === 'splitter') splitEnemy(e); // 分裂
             totalKills++;
             comboCount++; comboTimer = 180;
             if (comboCount > maxCombo) maxCombo = comboCount;
@@ -1853,7 +1922,7 @@
         if (p.type === 'baseshield'){ baseShieldCharges++; }  // 基地护盾次数 +1
         if (p.type === 'freeze'){ freezeTimer = 180; }
         if (p.type === 'bomb'){
-          for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; totalKills++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); }
+          for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; totalKills++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); if (e.type==='splitter') splitEnemy(e); addScore(100); }
           shake(15,4);
         }
         if (p.type === 'apbullet'){ apCharges++; }            // 穿甲次数 +1
@@ -1892,7 +1961,7 @@
         if (p.type === 'baseshield'){ baseShieldCharges++; }
         if (p.type === 'freeze'){ freezeTimer = 180; }
         if (p.type === 'bomb'){
-          for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; totalKills++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); }
+          for (const e of enemies) if (e.alive){ enemiesKilledThisLevel++; totalKills++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); if (e.type==='splitter') splitEnemy(e); addScore(100); }
           shake(15,4);
         }
         if (p.type === 'apbullet'){ apCharges++; }
@@ -2322,14 +2391,23 @@
     }
     // 静态背景层（预渲染 blit，一次 drawImage 代替上千次 fillRect）
     ctx.drawImage(staticLayer, 0, 0);
-    // Boss 血条
+    // Boss 血条（三阶段变色）
     if (boss && boss.alive) {
       const bw=180, bh=10, bx=(W-bw)/2, by=3;
       fillRect(bx,by,bw,bh,'#333');
       const pct = boss.hp/boss.maxHp;
-      fillRect(bx+1,by+1,(bw-2)*pct,bh-2, pct>0.5?'#ff4444':(pct>0.25?'#ff8800':'#ffcc00'));
+      const barColor = boss.phase3 ? '#ff2222' : (boss.phaseTriggered ? '#ff8800' : '#ff4444');
+      fillRect(bx+1,by+1,(bw-2)*pct,bh-2, barColor);
       ctx.fillStyle='#fff'; ctx.font='7px monospace'; ctx.textAlign='center';
       ctx.fillText('BOSS '+boss.hp+'/'+boss.maxHp, bx+bw/2, by+bh-3);
+      // 阶段提示
+      if (boss.phase3){
+        ctx.fillStyle = 'rgba(255,40,40,' + (0.5 + Math.sin(Date.now()/150)*0.3) + ')';
+        ctx.fillText('☠ 最终狂暴', bx+bw/2, by+bh+9);
+      } else if (boss.phaseTriggered){
+        ctx.fillStyle = 'rgba(255,140,0,0.8)';
+        ctx.fillText('⚡ 狂暴', bx+bw/2, by+bh+9);
+      }
     }
     // 水面（逐帧动画）+ 基地（血量动态色）
     const wtime = Date.now() / 400;
@@ -2558,6 +2636,15 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.15', date: '2026-08-15',
+      tags: [['new','玩法'],['ai','AI']],
+      desc: [
+        'Boss 战升级为三阶段：50% 血狂暴（扇形弹幕+增援），25% 血最终狂暴（环形弹幕+周期召唤）',
+        'Boss 血条按阶段变色（红→橙→深红）并显示阶段提示',
+        '新增敌人「分裂者」：死亡时分裂成 2 个绿色小兵（第 3 关起出现）',
+      ],
+    },
     {
       ver: 'v1.14', date: '2026-08-15',
       tags: [['new','新增'],['other','界面']],
@@ -2809,7 +2896,7 @@
       document.getElementById('cheatRow').style.display = cheatInvincible ? 'flex' : 'none';
     }
     if ((k==='i'||k==='I') && running){
-      for (const e of enemies) if (e.alive){ e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); addScore(100); addFloater(e.x+8, e.y-2, '+100', '#ffd24d', 10);
+      for (const e of [...enemies]) if (e.alive){ e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); if (e.type==='splitter') splitEnemy(e); addScore(100); addFloater(e.x+8, e.y-2, '+100', '#ffd24d', 10);
         totalKills++;
         comboCount++; comboTimer = 180;
         if (comboCount > maxCombo) maxCombo = comboCount;
