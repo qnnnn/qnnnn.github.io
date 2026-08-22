@@ -336,3 +336,42 @@ test('M: score buff doubles score gains per charge (stacks)', async ({ page }) =
   const charges = await page.evaluate(() => window.__test.buffCharges);
   expect(charges.score).toBe(Math.max(0, 3 - enemyCount));
 });
+
+test('N: suicide tank destroys brick wall, no score, counts level progress', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    window.__test.clearEnemies();
+    const e = window.__test.makeEnemyAt('suicide', 2, 4);
+    e.dir = 'right';
+    e.aiDir = 'right';
+    e.aiTimer = 99999;
+    e.movePersist = 99999;
+    window.__test.addEnemy(e);
+  });
+  expect(await page.evaluate(() => window.__test.getTile(4, 3))).toBe(1);
+  const scoreBefore = await page.evaluate(() => window.__test.score);
+  const killedBefore = await page.evaluate(() => window.__test.killedCount);
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.__test.getTile(4, 3))).toBe(0);
+  expect(await page.evaluate(() => window.__test.enemiesCount)).toBe(0);
+  expect(await page.evaluate(() => window.__test.score)).toBe(scoreBefore);
+  expect(await page.evaluate(() => window.__test.killedCount)).toBe(killedBefore + 1);
+});
+
+test('O: scout self-alert death gives no score but counts level progress', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    window.__test.clearEnemies();
+    const e = window.__test.makeEnemyAt('scout', 13, 26);
+    e.dir = 'up';
+    window.__test.addEnemy(e);
+  });
+  const scoreBefore = await page.evaluate(() => window.__test.score);
+  const killedBefore = await page.evaluate(() => window.__test.killedCount);
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.__test.score)).toBe(scoreBefore);
+  expect(await page.evaluate(() => window.__test.killedCount)).toBe(killedBefore + 1);
+});
+

@@ -1514,9 +1514,23 @@
             }
             hit = true;
           }
+          // 自爆兵撞砖墙：炸开墙并自毁（非玩家攻击致死，不计分）
+          if (!hit && e.stuckFrames > 0 && tileFront(e) === 1) {
+            const d = DIR[e.dir];
+            const fx = d.x ? (d.x > 0 ? e.x + e.w : e.x - 0.01) : e.x + e.w/2;
+            const fy = d.y ? (d.y > 0 ? e.y + e.h : e.y - 0.01) : e.y + e.h/2;
+            const tc = (fx / TILE) | 0, tr = (fy / TILE) | 0;
+            if (tr>=0 && tc>=0 && tr<ROWS && tc<COLS && map[tr][tc]===1){
+              map[tr][tc] = 0;
+              mapDirty = true;
+              explode(tc*TILE + TILE/2, tr*TILE + TILE/2, '#caa');
+              hit = true;
+            }
+          }
         }
         if (hit){
           e.alive = false;
+          enemiesKilledThisLevel++; // 非玩家攻击死亡也计入关卡进度，避免卡关
           explode(e.x+e.w/2, e.y+e.h/2, '#ff6600');
           sfx.boom();
           if (!running) continue;
@@ -1530,6 +1544,7 @@
         if (dx*dx + dy*dy < TILE * TILE * 25) { // 5格范围内
           e.scoutAlerted = true;
           e.alive = false;
+          enemiesKilledThisLevel++; // 非玩家攻击死亡也计入关卡进度，避免卡关
           explode(e.x+e.w/2, e.y+e.h/2, '#ff4444');
           sfx.boom();
           shake(8, 3);
@@ -2152,6 +2167,13 @@
     const dx = t.x - e.x, dy = t.y - e.y;
     if (Math.abs(dx)>Math.abs(dy)) return Math.random()<0.5?'up':'down';
     return Math.random()<0.5?'left':'right';
+  }
+  // 获取坦克正前方紧贴边缘的瓦片值（用于自爆兵判定是否撞墙）
+  function tileFront(t) {
+    const d = DIR[t.dir];
+    const fx = d.x ? (d.x > 0 ? t.x + t.w : t.x - 0.01) : t.x + t.w/2;
+    const fy = d.y ? (d.y > 0 ? t.y + t.h : t.y - 0.01) : t.y + t.h/2;
+    return tileAt(fx, fy);
   }
   // 返回相反方向
   function oppositeDir(dir) {
@@ -3234,6 +3256,7 @@
     get enemiesSpawned() { return enemiesSpawned; },
     get enemiesTotal() { return enemiesTotal; },
     get killedCount() { return enemiesKilledThisLevel; },
+    getTile(r, c) { return (r>=0 && c>=0 && r<ROWS && c<COLS) ? map[r][c] : -1; },
     playerInvincibleOn() { cheatInvincible = true; document.getElementById('cheatRow').style.display = 'flex'; },
     playerInvincibleOff() { cheatInvincible = false; document.getElementById('cheatRow').style.display = 'none'; },
     get lives() { return lives; },
