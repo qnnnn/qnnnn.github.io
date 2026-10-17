@@ -407,6 +407,20 @@
     background: linear-gradient(180deg, #ffd0d8 0%, #ff7d92 46%, #e0445f 100%);
     box-shadow: 0 6px 0 #8a1f33, 0 14px 26px rgba(2,10,22,.42), inset 0 1px 0 rgba(255,255,255,.7);
   }
+  .btn.btn-hard {
+    background: linear-gradient(180deg, #ffe0a8 0%, #ffab4d 46%, #e8701a 100%);
+    box-shadow: 0 6px 0 #8a4310, 0 14px 26px rgba(2,10,22,.42), inset 0 1px 0 rgba(255,255,255,.72);
+  }
+  .btn.btn-hard::after {
+    content: 'HARD';
+    position: absolute; top: -9px; right: -11px;
+    padding: 1px 5px;
+    font-size: 8px; font-weight: 900; letter-spacing: .12em;
+    color: #fff;
+    border-radius: 5px;
+    background: linear-gradient(180deg, #ff6644, #c4241f);
+    box-shadow: 0 2px 6px rgba(0,0,0,.45);
+  }
   .btn.btn-ghost {
     background: linear-gradient(180deg, rgba(46,74,110,.85), rgba(18,30,50,.9));
     color: #a9dcf5;
@@ -666,6 +680,7 @@
       </div>
       <div class="box">
         <div class="row"><span>得分</span><span class="val" id="score">0</span></div>
+        <div class="row" id="diffRow" style="display:none"><span>难度</span><span class="val" id="diffLabel" style="color:#ffab4d">困难</span></div>
         <div class="row"><span id="levelLabel">关卡</span><span class="val"><span id="level">1</span> · ❤<span id="lives">3</span></span></div>
         <div class="row"><span>敌军</span><span class="val" id="enemies">0</span><span class="val" id="enemiesProgress" style="color:#6cff6c;font-size:10px;white-space:nowrap;"></span></div>
         <div class="row" id="comboRow" style="display:none"><span>连杀</span><span class="val" id="comboDisplay" style="color:#ff6644">×0</span></div>
@@ -708,12 +723,13 @@
   <div id="overlay">
     <h1 id="ovTitle">坦克大战</h1>
     <div class="ov-sub">Battle City · Neon Ops</div>
-    <p id="ovText"><span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！</p>
+    <p id="ovText"><span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！<br>困难模式只有 1 条命、3 点血，敌人更多更快！</p>
     <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
       <div class="ov-btns">
         <button class="btn" id="btn1p">单人模式</button>
         <button class="btn" id="btn2p">双人模式</button>
         <button class="btn" id="btnEndless">生存模式</button>
+        <button class="btn btn-hard" id="btnHard">困难模式</button>
       </div>
       <div class="ov-btns">
         <button class="btn btn-blue" id="btnResume" style="display:none;">继续游戏</button>
@@ -813,7 +829,7 @@
   let bulletUpgraded=false, doubleShot=false, freezeTimer=0, allyRespawnTimer=0, shakeTimer=0, shakeIntensity=0;
   let permHP=0, permLives=0, permSpeed=0, permFire=false, permDouble=false, permShield=0;
   let playerHP=5, playerMaxHP=5;
-  let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, waveSpawned=false;
+  let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, hardMode=false, waveSpawned=false;
   let keys = {}, respawnTimer = null, p2respawnTimer = null, airdropTimer = 0, lastTime = 0;
   let playerInvTimer = 0;                       // 玩家复活无敌计时
   let levelIntroTimer = 0;                       // 关卡过场动画计时
@@ -826,6 +842,42 @@
   let highScore = 0; // 最高分（localStorage 持久化）
   try { highScore = parseInt(localStorage.getItem('battlecity_highscore') || '0', 10) || 0; } catch(_) {}
   let waveBonus = null; // 无尽模式波次奖励描述（升级界面显示）
+
+  // ===== 难度档位（hardMode 由菜单「困难模式」开启）=====
+  // 困难模式：初始资源更少、敌人更多更快、开火更凶、关卡惩罚更早、补给更稀
+  const DIFFS = {
+    normal: {
+      label: '普通', lives: 3, maxHP: 5,
+      totalBase: 20, totalStep: 2, bossBonus: 0,   // 每关敌军总量：base + (level-1)*step
+      spawnTimer: 220, spawnFloor: 70,             // 刷怪间隔（ticks）
+      enemySpeedMul: 1, enemyBulletSpeed: 2.4,
+      shootBase: 0.004, shootStep: 0.002, shootMul: 1, // 敌人开火概率
+      rapidCd: 30, normalCd: 50,                   // 敌人射击冷却
+      typeShift: 0,                                // 敌兵种类解锁提前量
+      debuffLevel: 5, debuffMul: 1, debuffBonus: 0, // 关卡惩罚起始关/概率/个数
+      dropRate: 0.3, pickupFactor: 1,              // 击杀掉落率 / 地面道具间隔倍率
+      bossHpMul: 1,
+    },
+    hard: {
+      label: '困难', lives: 1, maxHP: 3,
+      totalBase: 26, totalStep: 3, bossBonus: 4,
+      spawnTimer: 110, spawnFloor: 46,
+      enemySpeedMul: 1.18, enemyBulletSpeed: 2.9,
+      shootBase: 0.006, shootStep: 0.0026, shootMul: 1.5,
+      rapidCd: 22, normalCd: 38,
+      typeShift: 2,
+      debuffLevel: 3, debuffMul: 1.6, debuffBonus: 1,
+      dropRate: 0.17, pickupFactor: 1.6,
+      bossHpMul: 1.35,
+    },
+  };
+  function diff(){ return hardMode ? DIFFS.hard : DIFFS.normal; }
+  // 本关需生成的敌军总数（Boss 关 / 生存模式有独立公式）
+  function enemiesForLevel(lv){
+    if (lv % 5 === 0) return 10 + lv + diff().bossBonus;
+    if (endlessMode) return 15 + lv * 2;
+    return diff().totalBase + (lv - 1) * diff().totalStep;
+  }
   // 主菜单显示最高分（HTML 初始文案由 JS 补上）
   function renderMenuHighScore(){
     const ov = document.getElementById('ovText');
@@ -1162,10 +1214,11 @@
 
   function spawnBoss() {
     const bLevel = Math.floor(level / 5);
+    const bHP = Math.round((8 + bLevel * 3) * diff().bossHpMul);
     boss = {
       x: 10*TILE, y: 4*TILE, w: TILE*2, h: TILE*2,
       dir: 'down', speed: 0.5 + bLevel * 0.03,
-      hp: 8 + bLevel * 3, maxHp: 8 + bLevel * 3,
+      hp: bHP, maxHp: bHP,
       cooldown: 0, alive: true,
       color: bLevel === 1 ? '#aa44cc' : bLevel === 2 ? '#dd3333' : '#ffaa00',
       moveTimer: 0, moveDir: null, enraged: false,
@@ -1178,7 +1231,7 @@
   }
 
   function makeTank(isPlayer, enemyType) {
-    const spd = isPlayer ? (1.2 + permSpeed * 0.15) : (0.4 + Math.min(level-1, 6) * 0.08);
+    const spd = isPlayer ? (1.2 + permSpeed * 0.15) : (0.4 + Math.min(level-1, 6) * 0.08) * diff().enemySpeedMul;
     const t = {
       isPlayer,
       x: 0, y: 0, w: TILE, h: TILE,
@@ -1265,11 +1318,14 @@
   function rollLevelDebuffs(){
     levelDebuffs = [];
     blindPhase = 0; drainTick = 0;
-    // 关卡 5 起开始出现，越靠后数量/概率越高
+    const D = diff();
+    // 普通模式关卡 5 起出现；困难模式关卡 3 起、概率更高、可能同时吃到多条
+    const lt = level - D.debuffLevel;
     let count = 0;
-    if (level >= 5) count = Math.random() < (0.25 + (level-5) * 0.03) ? 1 : 0;
-    if (level >= 8 && Math.random() < 0.35) count = Math.max(count, 2);
-    if (level >= 12 && Math.random() < 0.4) count = Math.max(count, 3);
+    if (lt >= 0) count = Math.random() < Math.min(0.95, (0.25 + lt * 0.03) * D.debuffMul) ? 1 : 0;
+    if (level >= 8 && Math.random() < Math.min(0.95, 0.35 * D.debuffMul)) count = Math.max(count, 2);
+    if (level >= 12 && Math.random() < Math.min(0.95, 0.4 * D.debuffMul)) count = Math.max(count, 3);
+    if (count > 0) count = Math.min(count + D.debuffBonus, DEBUFF_EFFECTS.length);
     const pool = [...DEBUFF_EFFECTS];
     for (let i=0;i<count && pool.length;i++){
       const idx = (Math.random()*pool.length)|0;
@@ -1337,7 +1393,7 @@
   }
 
   function spawnDrop(e){
-    if (Math.random() >= 0.3) return;
+    if (Math.random() >= diff().dropRate) return;
     if (pickups.length >= 3) return;
     const available = PICKUP_TYPES.filter(t => {
       if (t==='bullet' && bulletUpgraded) return false;
@@ -1378,32 +1434,33 @@
     const spotsY = 2*TILE;
     // 随机打乱尝试
     for (let i=spotsX.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [spotsX[i],spotsX[j]]=[spotsX[j],spotsX[i]]; }
-    // 根据等级选择敌人类型
+    // 根据等级选择敌人类型（困难模式用 level+typeShift，敌兵种类提前登场）
     let enemyType = {hp:1, rapid:false, type:'normal'};
     const r = Math.random();
-    if (level >= 7) {
+    const lv = level + diff().typeShift;
+    if (lv >= 7) {
       if (r < 0.30) enemyType = {hp:3, rapid:true, type:'elite'};
       else if (r < 0.42) enemyType = {hp:2, rapid:true, type:'rapid'};
       else if (r < 0.52) enemyType = {hp:1, rapid:false, type:'suicide'};
       else if (r < 0.63) enemyType = {hp:2, rapid:false, type:'armored'};
       else if (r < 0.72) enemyType = {hp:1, rapid:false, type:'scout'};
       else if (r < 0.85) enemyType = {hp:1, rapid:false, type:'splitter'};
-    } else if (level >= 5) {
+    } else if (lv >= 5) {
       if (r < 0.20) enemyType = {hp:2, rapid:true, type:'rapid'};
       else if (r < 0.32) enemyType = {hp:1, rapid:false, type:'suicide'};
       else if (r < 0.48) enemyType = {hp:2, rapid:false, type:'armored'};
       else if (r < 0.58) enemyType = {hp:1, rapid:false, type:'scout'};
       else if (r < 0.70) enemyType = {hp:1, rapid:false, type:'splitter'};
-    } else if (level >= 4) {
+    } else if (lv >= 4) {
       if (r < 0.18) enemyType = {hp:1, rapid:false, type:'suicide'};
       else if (r < 0.40) enemyType = {hp:2, rapid:false, type:'armored'};
       else if (r < 0.50) enemyType = {hp:1, rapid:false, type:'scout'};
       else if (r < 0.60) enemyType = {hp:1, rapid:false, type:'splitter'};
-    } else if (level >= 3) {
+    } else if (lv >= 3) {
       if (r < 0.28) enemyType = {hp:2, rapid:false, type:'armored'};
       else if (r < 0.38) enemyType = {hp:1, rapid:false, type:'scout'};
       else if (r < 0.50) enemyType = {hp:1, rapid:false, type:'splitter'};
-    } else if (level >= 2) {
+    } else if (lv >= 2) {
       if (r < 0.13) enemyType = {hp:1, rapid:false, type:'scout'};
     }
     for (const x of spotsX){
@@ -1505,9 +1562,9 @@
     if (isLaser) laserCharges--;
     if (isTriple) tripleCharges--;
     if (isAp) apCharges--;
-    t.cooldown = isPlayer ? (isLaser ? 14 : 28) : (rapid ? 30 : 50);
+    t.cooldown = isPlayer ? (isLaser ? 14 : 28) : (rapid ? diff().rapidCd : diff().normalCd);
     const d = DIR[t.dir];
-    const speed = isPlayer && (bulletUpgraded || isLaser) ? 4.5 : 2.4;
+    const speed = isPlayer ? ((bulletUpgraded || isLaser) ? 4.5 : 2.4) : diff().enemyBulletSpeed;
     const s = isPlayer && (bulletUpgraded || isLaser) ? 5 : 4;
     const perp = d.x ? {x:0,y:-1} : {x:1,y:0};
     const cx = t.x + (t.w - s) / 2, cy = t.y + (t.h - s) / 2;
@@ -1928,7 +1985,8 @@
             ? Math.abs(e.x - player.x) < 12
             : Math.abs(e.y - player.y) < 12
         );
-        const baseChance = 0.004 + Math.min(level-1, 6) * 0.002;
+        const D = diff();
+        const baseChance = (D.shootBase + Math.min(level - 1, 6) * D.shootStep) * D.shootMul;
         const shootChance = aligned ? baseChance * 3 : baseChance;
         // 帧率无关：概率按 dt 累积，避免高刷屏(120Hz)每帧掷骰导致射击翻倍
         if (e.fireAcc === undefined) e.fireAcc = Math.random();
@@ -2296,7 +2354,7 @@
         if (spawnEnemy()) made++;
       }
       // 生成间隔：随等级略微加快（约 2~4.7 秒）；本轮一个都没生成（出生点被占）则快速重试
-      spawnTimer = made === 0 ? 40 : Math.max(70, 190 + ((Math.random()*100)|0) - level*6);
+      const D0 = diff(); spawnTimer = made === 0 ? 40 : Math.max(D0.spawnFloor, 190 + ((Math.random()*100)|0) - level*6);
     }
     if (spawnTimer>0) spawnTimer-=dt;
 
@@ -2341,7 +2399,7 @@
     // 道具生成
     if (pickupTimer <= 0 && pickups.length < 1){
       spawnPickup();
-      pickupTimer = 480 + ((Math.random()*300)|0);
+      pickupTimer = Math.round((480 + ((Math.random()*300)|0)) * diff().pickupFactor);
     }
     if (pickupTimer > 0) pickupTimer-=dt;
 
@@ -2643,7 +2701,7 @@
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0; hitStopTimer = 0;
     enemiesKilledThisLevel = 0;
     enemiesSpawned = 0; // 配额制：本关已生成数清零
-    enemiesTotal = level % 5 === 0 ? 10 + level : (endlessMode ? 15 + level * 2 : 20 + (level-1) * 2);
+    enemiesTotal = enemiesForLevel(level);
     shieldCharges = 0; bulletUpgraded = permFire; doubleShot = permDouble; baseShieldCharges = permShield; freezeTimer = 0; apCharges = 0;
     speedCharges = 0; tripleCharges = 0; laserCharges = 0; scoreCharges = 0; speedActive = false;
     dmgFlash = 0; bossWarn = 0;
@@ -2662,11 +2720,11 @@
       emptyMap();
       spawnPlayer(false);
       // 开局先出一批（按等级递增），之后按时间节奏持续生成
-      const count = Math.min(2 + Math.floor(level / 2), 6);
+      const count = Math.min(2 + Math.floor(level / 2) + (hardMode ? 1 : 0), hardMode ? 7 : 6);
       for (let i=0;i<count;i++) spawnEnemy();
     }
     // 开局生成后开始计时下一次生成
-    spawnTimer = endlessMode ? 150 : 220;
+    spawnTimer = endlessMode ? 150 : diff().spawnTimer;
   }
 
   // ===== 卡通 + 科技风绘制工具 =====
@@ -3452,12 +3510,14 @@
     lastTime = 0; clearTimeout(respawnTimer); clearTimeout(p2respawnTimer); shakeTimer = 0; hitStopTimer = 0;
     dualMode = (mode==='dual');
     endlessMode = (mode==='endless');
+    hardMode = (mode==='hard');
     document.body.classList.add('running');
     bgmStop();
-    score=0; level=1; lives=3; p2lives=3; running=true; paused=false;
+    const D = diff();
+    score=0; level=1; lives=D.lives; p2lives=3; running=true; paused=false;
     enemiesKilledThisLevel=0;
     enemiesSpawned=0;
-    enemiesTotal = level % 5 === 0 ? 10 + level : (endlessMode ? 15 + level * 2 : 20 + (level-1) * 2);
+    enemiesTotal = enemiesForLevel(level);
     bullets=[]; particles=[]; enemies=[]; spawnTimer=0; pickups=[]; boss=null; ally=null; allyRespawnTimer=0;
     shieldCharges=0; bulletUpgraded=permFire; doubleShot=permDouble; baseShieldCharges=permShield; freezeTimer=0; pickupTimer=0;
     apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
@@ -3465,12 +3525,13 @@
     comboCount=0; comboTimer=0; comboDisplayTimer=0;
     totalKills=0; maxCombo=0;
     permHP=0; permLives=0; permSpeed=0; permFire=false; permDouble=false; permShield=0; upgradePending=false;
-    playerHP=5; playerMaxHP=5; waveSpawned=false; airdropTimer=0;
+    playerHP=D.maxHP; playerMaxHP=D.maxHP; waveSpawned=false; airdropTimer=0;
     document.getElementById('levelLabel').textContent = endlessMode ? '波次' : '关卡';
+    document.getElementById('diffRow').style.display = hardMode ? 'flex' : 'none';
     emptyMap(); spawnPlayer();
     // 开局先出一批
-    if (!endlessMode) { const count = Math.min(2 + Math.floor(level / 2), 6); for (let i=0;i<count;i++) spawnEnemy(); }
-    spawnTimer = endlessMode ? 150 : 220; // 开局生成后开始计时下一次
+    if (!endlessMode) { const count = Math.min(2 + Math.floor(level / 2) + (hardMode ? 1 : 0), hardMode ? 7 : 6); for (let i=0;i<count;i++) spawnEnemy(); }
+    spawnTimer = endlessMode ? 150 : diff().spawnTimer; // 开局生成后开始计时下一次
     levelIntroTimer = 90; // 开局过场
     rollLevelDebuffs();
     sfx.intro();
@@ -3487,9 +3548,22 @@
   btn1p.addEventListener('click', ()=>startGame('single'));
   btn2p.addEventListener('click', ()=>startGame('dual'));
   btnEndless.addEventListener('click', ()=>startGame('endless'));
+  document.getElementById('btnHard').addEventListener('click', ()=>startGame('hard'));
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.20', date: '2026-10-17',
+      tags: [['new','模式'],['other','玩法']],
+      desc: [
+        '新增「困难模式」：只有 1 条命、3 点血；每关敌军总量 26 起、每关 +3（普通模式 20 起、每关 +2）',
+        '困难敌人更凶：整体移速 +18%、子弹速度 2.4→2.9、开火频率约 1.5 倍、射击冷却 50/30→38/22',
+        '敌兵种类提前 2 关登场（精英、速射、分裂者更早出现），Boss 血量 ×1.35',
+        '刷怪更快：间隔 220→110 ticks、开局直接放出 3 个敌人；关卡惩罚从第 3 关就开始，且可能叠加更多',
+        '补给更紧张：击杀掉落率 30%→17%，地面道具刷新间隔 ×1.6',
+        '菜单新增橙色 HARD 徽章按钮，侧栏新增「难度」行，结算界面标注困难模式；新增 2 个回归用例',
+      ],
+    },
     {
       ver: 'v1.19', date: '2026-10-17',
       tags: [['new','视觉'],['other','重构']],
@@ -3678,8 +3752,9 @@
     let extra = '';
     if (dualMode) extra = '<br>P1生命：'+lives+' &nbsp; P2生命：'+p2lives;
     const rec = newRecord ? '<br><b style="color:#6cff6c">★ 新纪录！</b>' : '';
+    const hardTip = hardMode ? '<br><span style="color:#ffab4d">难度：困难模式</span>' : '';
     ovText.innerHTML = '最终得分：<b style="color:#ffd24d">'+score+'</b>'+rec+
-      '<br><span style="color:#888">最高分 '+highScore+'</span><br>到达'+modeLabel+'：'+level+extra+
+      '<br><span style="color:#888">最高分 '+highScore+'</span>'+hardTip+'<br>到达'+modeLabel+'：'+level+extra+
       '<br><span style="color:#888">本局击杀 '+totalKills+' &nbsp; 最高连杀 ×'+maxCombo+'</span>';
     btnRetry.style.display = '';
     document.getElementById('btnResume').style.display = 'none';
@@ -3690,8 +3765,9 @@
     lastTime = 0; clearTimeout(respawnTimer); clearTimeout(p2respawnTimer);
     running = false; bgmStop(); shakeTimer = 0;
     document.body.classList.remove('running');
+    document.getElementById('diffRow').style.display = 'none';
     ovTitle.textContent = '坦克大战';
-    ovText.innerHTML = '<span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！';
+    ovText.innerHTML = '<span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！<br>困难模式只有 1 条命、3 点血，敌人更多更快！';
     renderMenuHighScore();
     btnRetry.style.display = 'none';
     document.getElementById('btnResume').style.display = '';
@@ -3719,7 +3795,7 @@
     enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0;
     enemiesKilledThisLevel = 0;
     enemiesSpawned = 0;
-    enemiesTotal = level % 5 === 0 ? 10 + level : (endlessMode ? 15 + level * 2 : 20 + (level-1) * 2);
+    enemiesTotal = enemiesForLevel(level);
     shieldCharges=0; bulletUpgraded=permFire; doubleShot=permDouble; baseShieldCharges=permShield; freezeTimer=0;
     apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
     pickupTimer = 0; airdropTimer = 0;
@@ -3732,10 +3808,10 @@
     } else {
       emptyMap();
       spawnPlayer();
-      const count = Math.min(2 + Math.floor(level / 2), 6);
+      const count = Math.min(2 + Math.floor(level / 2) + (hardMode ? 1 : 0), hardMode ? 7 : 6);
       for (let i=0;i<count;i++) spawnEnemy();
     }
-    spawnTimer = endlessMode ? 150 : 220; // 开局生成后开始计时下一次
+    spawnTimer = endlessMode ? 150 : diff().spawnTimer; // 开局生成后开始计时下一次
     overlay.classList.add('hidden');
     document.getElementById('upgradeOverlay').classList.add('hidden');
     paused = false;
@@ -4121,6 +4197,15 @@
         return true;
       }
       return false;
+    },
+    // 困难模式测试钩子
+    get hardModeOn() { return hardMode; },
+    get difficultyLabel() { return diff().label; },
+    get playerMaxHP() { return playerMaxHP; },
+    get diffParams() { return { ...diff() }; },
+    enemySpeed(type) {
+      const e = makeTank(false, { hp:1, rapid:false, type: type || 'normal' });
+      return e.speed;
     },
   };
 })();

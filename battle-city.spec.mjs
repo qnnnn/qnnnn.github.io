@@ -13,6 +13,7 @@ test('page loads with title and overlay', async ({ page }) => {
   await expect(page.locator('#btn1p')).toBeVisible();
   await expect(page.locator('#btn2p')).toBeVisible();
   await expect(page.locator('#btnEndless')).toBeVisible();
+  await expect(page.locator('#btnHard')).toBeVisible();
   await expect(page.locator('canvas#screen')).toBeVisible();
   await expect(page.locator('#panel')).toBeVisible();
 });
@@ -382,5 +383,52 @@ test('O: scout self-alert death gives no score but counts level progress', async
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => window.__test.score)).toBe(scoreBefore);
   expect(await page.evaluate(() => window.__test.killedCount)).toBe(killedBefore + 1);
+});
+
+test('P: hard mode starts with scarce resources and a bigger enemy quota', async ({ page }) => {
+  await page.click('#btnHard');
+  await expect(page.locator('#overlay')).not.toBeVisible();
+  await expect(page.locator('#lives')).toHaveText('1');
+  await expect(page.locator('#diffRow')).toBeVisible();
+  await expect(page.locator('#diffLabel')).toHaveText('困难');
+
+  const hard = await page.evaluate(() => ({
+    on: window.__test.hardModeOn,
+    maxHP: window.__test.playerMaxHP,
+    hp: window.__test.playerHP,
+    total: window.__test.enemiesTotal,
+    speed: window.__test.enemySpeed('normal'),
+  }));
+  expect(hard.on).toBe(true);
+  expect(hard.maxHP).toBe(3);
+  expect(hard.hp).toBe(3);
+  expect(hard.total).toBe(26);          // 普通模式是 20
+  expect(hard.speed).toBeGreaterThan(0.45); // 普通模式基础 0.4
+  // 开局直接放出的敌兵比普通模式多（普通模式 2 个）
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => window.__test.enemiesCount)).toBeGreaterThanOrEqual(3);
+});
+
+test('Q: leaving hard mode restores normal difficulty values', async ({ page }) => {
+  await page.click('#btnHard');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('m');
+  await expect(page.locator('#overlay')).toBeVisible();
+  await expect(page.locator('#diffRow')).toBeHidden();
+
+  await page.click('#btn1p');
+  await page.waitForTimeout(300);
+  const n = await page.evaluate(() => ({
+    on: window.__test.hardModeOn,
+    maxHP: window.__test.playerMaxHP,
+    total: window.__test.enemiesTotal,
+    lives: window.__test.lives,
+    speed: window.__test.enemySpeed('normal'),
+  }));
+  expect(n.on).toBe(false);
+  expect(n.maxHP).toBe(5);
+  expect(n.total).toBe(20);
+  expect(n.lives).toBe(3);
+  expect(n.speed).toBeCloseTo(0.4, 3);
 });
 
