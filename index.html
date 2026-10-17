@@ -821,6 +821,7 @@
         <div class="row"><span>基地</span><span class="val" id="bufBase">❤❤❤❤❤</span></div>
         <div class="panel-section">武器</div>
         <div class="row"><span>坦克</span><span class="val" id="wpnTank">标准</span></div>
+  <div class="row"><span>弹药</span><span class="val" id="ammoDisplay">▰▰▰▰▰▰</span></div>
         <div class="row"><span>子弹</span><span class="val" id="wpnBullet">普通</span></div>
         <div class="row"><span>护盾</span><span class="val" id="wpnShield">-</span></div>
         <div class="row"><span>连射</span><span class="val" id="wpnDouble">-</span></div>
@@ -943,6 +944,7 @@
   const levelDebuffRow = document.getElementById('levelDebuffRow');
   const levelDebuffEl = document.getElementById('levelDebuffEl');
   const hpDisplay = document.getElementById('hpDisplay');
+  const ammoEl = document.getElementById('ammoDisplay');
   const comboRow = document.getElementById('comboRow');
   const comboDisplay = document.getElementById('comboDisplay');
   const wpnBullet = document.getElementById('wpnBullet');
@@ -1025,11 +1027,14 @@
   // build 决定绘制用的车体尺寸（见 TANK_BUILD），敌人也按 kind 用同一套
   const PLAYER_TANKS = {
     standard: { key:'standard', name:'标准坦克', short:'标准', color:'#6cff6c', build:'medium',
-      speed:1.2,  bulletSpeed:2.4, cd:28, dmg:2, pierce:1, blurb:'均衡' },
+      speed:1.2,  bulletSpeed:2.4, cd:28, dmg:2, pierce:1, blurb:'均衡',
+      magazine: 6, reload: 20 },
     heavy:    { key:'heavy',    name:'重炮坦克', short:'重炮', color:'#ffb14d', build:'heavy',
-      speed:0.82, bulletSpeed:2.2, cd:46, dmg:4, pierce:2, blurb:'破盾' },
+      speed:0.82, bulletSpeed:2.2, cd:46, dmg:4, pierce:2, blurb:'破盾',
+      magazine: 3, reload: 24 },
     scout:    { key:'scout',    name:'迅捷坦克', short:'迅捷', color:'#69e6ff', build:'light',
-      speed:1.5,  bulletSpeed:2.9, cd:18, dmg:1, pierce:1, blurb:'快射' },
+      speed:1.5,  bulletSpeed:2.9, cd:18, dmg:1, pierce:1, blurb:'快射',
+      magazine: 10, reload: 13 },
   };
   let playerTank = 'standard';
   function tankSpec(){ return PLAYER_TANKS[playerTank] || PLAYER_TANKS.standard; }
@@ -1448,7 +1453,12 @@
       shield: 0, maxShield: 0,
       build: isPlayer ? tankSpec().build : 'medium',
       kind: 'medium',
-      type: 'normal'
+      type: 'normal',
+      // 弹匣：玩家开火消耗、随时间回填（弹匣/回填速度按坦克不同，见 PLAYER_TANKS）
+      ammo: isPlayer ? tankSpec().magazine : 0,
+      ammoMax: isPlayer ? tankSpec().magazine : 0,
+      reloadTicks: isPlayer ? tankSpec().reload : 0,
+      reloadTimer: 0
     };
     if (!isPlayer && enemyType){
       const kind = ENEMY_KINDS[enemyType.kind || 'medium'] || ENEMY_KINDS.medium;
@@ -1862,6 +1872,8 @@
     if (t.cooldown > 0) return;
     const isAlly = !!t.isAlly;                        // AI 队友：玩家阵营，但不消耗玩家的强化次数
     const isPlayer = !!t.isPlayer && !isAlly;
+    // 弹匣：没弹就打不响（回填由 update() 负责，见玩家更新段）
+    if (isPlayer && t.ammo <= 0) return;
     const rapid = !isPlayer && t.rapid;
     // 次数制：每次射击消耗 1 次对应强化
     const isLaser = isPlayer && laserCharges > 0;   // 激光速射
@@ -1904,6 +1916,7 @@
         pierce: isPlayer ? spec.pierce : 1
       });
     }
+    if (isPlayer) t.ammo = Math.max(0, t.ammo - count);   // 每颗子弹吃 1 发弹药（三连发=3）
     if (allies.includes(t)) allyShotsFired++;
     sfx.shoot();
   }
@@ -1933,6 +1946,23 @@
   }
   function shake(t,i){ shakeTimer=Math.max(shakeTimer,t); shakeIntensity=Math.max(shakeIntensity,i); }
 
+  // 弹匣回填：满弹不动，缺一发就按坦克自己的 reloadTicks 补一发
+  function reloadTank(t, dt) {
+    if (!t || !t.ammoMax || t.ammo >= t.ammoMax) { t.reloadTimer = 0; return; }
+    t.reloadTimer -= dt;
+    while (t.reloadTimer <= 0 && t.ammo < t.ammoMax) {
+      t.ammo++;
+      t.reloadTimer += t.reloadTicks;
+    }
+  }
+  function updateAmmoDisplay(){
+    if (!player) return;
+    const t = dualMode && player2 && player2.alive ? player2 : player;
+    if (!t.ammoMax) { setText(ammoEl, ''); return; }
+    let s = '';
+    for (let i = 0; i < t.ammoMax; i++) s += i < t.ammo ? '▰' : '▱';
+    setText(ammoEl, s);
+  }
   function updateHPDisplay(){
     const hearts = '❤'.repeat(Math.max(0, playerHP)) + '🖤'.repeat(Math.max(0, playerMaxHP - playerHP));
     setText(hpDisplay, hearts || '死');
@@ -2058,6 +2088,7 @@
         p1SlideDir = null; p1SlideSpeed = 0;
       }
       if (player.cooldown>0) player.cooldown-=dt;
+      reloadTank(player, dt);
       if (keys['j']||keys[' ']) shoot(player);
     }
     if (dualMode && player2 && player2.alive) {
@@ -2089,6 +2120,7 @@
         p2SlideDir = null; p2SlideSpeed = 0;
       }
       if (player2.cooldown>0) player2.cooldown-=dt;
+      reloadTank(player2, dt);
       if (keys['k']) shoot(player2);
     }
 
@@ -3909,6 +3941,16 @@
     for (const e of enemies) if (e.alive){ drawTank(e); if (e.shield > 0) drawShieldRing(e); drawEnemyHp(e); }
     if (boss && boss.alive) drawBoss(boss);
 
+    // 玩家弹药条：满弹不画，缺弹才在头顶显示（不挡敌人血条位置，只在下方贴地画）
+    for (const t of [player, player2]) {
+      if (!t || !t.alive || !t.ammoMax || t.ammo >= t.ammoMax) continue;
+      const bw = 13, bh = 2.2, bx = t.x + (t.w - bw) / 2, by = t.y + t.h + 1.6;
+      shape(ctx, bx - 0.8, by - 0.8, bw + 1.6, bh + 1.6, 1.4, 'rgba(4,9,15,.9)');
+      shape(ctx, bx, by, bw, bh, 0.9, 'rgba(58,74,92,.8)');
+      const pct = t.ammo / t.ammoMax;
+      shape(ctx, bx, by, bw * pct, bh, 0.9, pct > 0.5 ? '#69e6ff' : pct > 0.25 ? '#ffd24d' : '#ff6b6b');
+    }
+
     // 冰冻视觉效果
     if (freezeTimer > 0){
       const glint = Math.floor(Date.now() / 180) % 2 === 0;
@@ -4109,6 +4151,9 @@
       ctx.fillText('按 P 继续', W / 2, H / 2 + 24);
     }
 
+    // 面板弹药条：跟随玩家（双人时显示 P2，P2 死了切回 P1）
+    updateAmmoDisplay();
+
     if (_shook) ctx.restore();
   }
   function loop(time){
@@ -4176,6 +4221,18 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.34-beta', date: '2026-10-19',
+      tags: [['new', '玩法'], ['other', '平衡']],
+      desc: [
+        '新增弹匣系统：玩家坦克开火消耗弹药，弹匣见底就打不响，弹药随时间逐发回填 —— 长按连射会受到弹匣约束',
+        '三种坦克弹匣不同：标准 6 发（每 0.33 秒回 1 发）、重炮 3 发（0.4 秒）、迅捷 10 发（0.22 秒最快）—— 平时点射几乎无感，只有疯狂泼水才会断档',
+        '三连发 buff 一次吃掉 3 发弹药，和弹匣形成真实的资源权衡',
+        '面板新增「弹药」行（▰ 实心=有弹、▱ 空心=空），脚下弹药条缺弹时显示填充进度',
+        '新增回归用例 AC：弹匣打空哑火 + 2 秒内回满 + 三坦克参数不同',
+      ],
+      minor: [3, 4],
+    },
     {
       ver: 'v1.33-beta', date: '2026-10-19',
       tags: [['fix', 'Boss'], ['other', '平衡']],
@@ -5095,9 +5152,13 @@
     },
     get tankStats() {
       const s = tankSpec();
-      return { key: s.key, name: s.name, speed: s.speed, cd: s.cd, dmg: s.dmg, pierce: s.pierce, bulletSpeed: s.bulletSpeed };
+      return { key: s.key, name: s.name, speed: s.speed, cd: s.cd, dmg: s.dmg, pierce: s.pierce, bulletSpeed: s.bulletSpeed,
+               magazine: s.magazine, reload: s.reload };
     },
     get playerSpeed() { return player ? player.speed : -1; },
+    get playerAmmo() { return player ? player.ammo : -1; },
+    get playerAmmoMax() { return player ? player.ammoMax : 0; },
+    fireOnce() { if (player) { player.cooldown = 0; shoot(player); return true; } return false; },
     get enemyShieldForLevel() { return enemyShieldFor(level); },
     get shieldedEnemies() { return enemies.filter(e => e.alive && e.shield > 0).length; },
     // 定向构造一个带盾敌人用于断言护盾逻辑（用 tag 查找，enemies 数组每帧会过滤死亡项）

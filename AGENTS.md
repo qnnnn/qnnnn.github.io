@@ -1,12 +1,12 @@
 # AGENTS.md — Battle City (坦克大战)
 
-Single-file HTML5 Canvas game (~234KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
+Single-file HTML5 Canvas game (~240KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
 
 ## Commands
 
 | Command | What |
 |---------|------|
-| `npx playwright test` | Run all 45 tests headless |
+| `npx playwright test` | Run all 46 tests headless |
 | `npx playwright test --headed` | Run with browser visible |
 | `npx playwright test -g "test name"` | Run single test by name |
 
@@ -19,7 +19,7 @@ Single-file HTML5 Canvas game (~234KB in `index.html`). No build, no bundler, no
 - Tests load the game via `file://` protocol — no server needed.
 - Config: `playwright.config.mjs` (headless, 800×800 viewport, 30s timeout). If Playwright's bundled Chromium is not installed (e.g. offline, so `npx playwright install` can't run), the config automatically falls back to the system Google Chrome via `channel: 'chrome'`.
 - Test file: `battle-city.spec.mjs` — ESM (`.mjs`) despite `"type": "commonjs"` in `package.json`.
-- All 45 tests are **flat top-level** (no `describe()` blocks).
+- All 46 tests are **flat top-level** (no `describe()` blocks).
 - Tests mix `page.waitForTimeout()` (time-based waits for game state) with explicit Playwright assertions. If a test is flaky, increasing these timeouts is the typical fix — **but not when the flake is a read race.** When a test spawns an entity that can die almost immediately, the "before" baseline (`score`, `killedCount`) must be read inside the *same* `page.evaluate()` as the spawn. A separate round-trip read can land after the death frame, so the assertion overshoots and no amount of extra waiting helps. Tests N and O hit this; see `battle-city.spec.mjs` for the atomic-baseline pattern.
 - Newer tests use the `window.__test` debug API (e.g. `triggerPlayerDeath`, `applyBuff`, `addLevelDebuff`, `hitPlayer`, `setBaseHp`) to set up deterministic game states.
 - `node_modules/` and `test-results/` are gitignored.
@@ -65,11 +65,13 @@ Late-game pressure comes from **shields, not headcount** (`enemyShieldFor(lv)`).
 
 Three selectable player tanks live in `PLAYER_TANKS` (near `DIFFS`), chosen on the menu (`#tankPicks`, persisted in `playerTank`, read through `tankSpec()`):
 
-| key | build | speed | cd | dmg | pierce | role |
-|-----|-------|-------|----|-----|--------|------|
-| `standard` | medium | 1.2 | 28 | 2 | 1 | baseline, two shots kill a light tank |
-| `heavy` | heavy | 0.82 | 46 | 4 | 2 | breaks a shield layer *and* deals 4 damage to the hull in one shot |
-| `scout` | light | 1.5 | 18 | 1 | 1 | fastest movement and fire rate, lowest per-shot damage |
+| key | build | speed | cd | dmg | pierce | magazine / reload (ticks per shell) | role |
+|-----|-------|-------|----|-----|--------|--------------------------------------|------|
+| `standard` | medium | 1.2 | 28 | 2 | 1 | 6 / 20 | baseline, two shots kill a light tank |
+| `heavy` | heavy | 0.82 | 46 | 4 | 2 | 3 / 24 | breaks a shield layer *and* deals 4 damage to the hull in one shot |
+| `scout` | light | 1.5 | 18 | 1 | 1 | 10 / 13 | fastest movement and fire rate, lowest per-shot damage |
+
+Each player tank has a **magazine**: firing consumes shells (`t.ammo`), and an empty magazine blocks `shoot()` entirely (the ammo check runs *before* buff charges are spent). Shells refill one at a time through `reloadTank(t, dt)` in the update loop (`reloadTicks` per shell, only while ammo is missing) — the refill rate is close to or faster than the fire cooldown on purpose ("don't make it slow"), so it only throttles sustained spam, not ordinary play. Triple-shot spends 3 shells per trigger pull, which is where the trade-off actually bites. The panel shows `▰/▱` blocks (`#ammoDisplay`, updated every frame by `updateAmmoDisplay()`), and a small under-tank bar appears whenever the player is missing shells. Test `AC` locks the drain → dry-fire → refill flow and the per-tank differences.
 
 `dmg` is measured in **enemy hull points**, not shots: a light enemy has 2 hp, so `standard` kills it in one hit and `scout` needs exactly two. Test `Y` asserts that `scout.dmg * 2 === light.hp`.
 
@@ -145,7 +147,7 @@ The boss has three overlapping attack timers; in the final-rage phase (hp ≤ ¼
 | ring barrage (`boss.ringCooldown`, phase 3) | 80 | 6 directions, speed 2.0 |
 | summon (`boss.summonCooldown`, phase 3) | 360 | one `spawnEnemy()` |
 
-The main-shot bullet count is **capped at +2** on purpose — it used to be `floor(level / 10)` unbounded, so a level-30 boss vomited six bullets per volley. The fan burst is a fixed 3 bullets for the same reason (final rage used to widen it to 5). Measured final-rage density after the nerf: peak 12 / average 6.4 enemy bullets on screen, down from 38 / 27.1. Test `AB` asserts peak ≤ 20 and average ≤ 12, so raising any cooldown or widening a volley will fail it — adjust the assertion deliberately if a buff is intended.
+The main-shot bullet count is **capped at +2** on purpose — it used to be `floor(level / 10)` unbounded, so a level-30 boss vomited six bullets per volley. The fan burst is a fixed 3 bullets for the same reason (final rage used to widen it to 5). Measured final-rage density after the nerf: peak 12 / average 6.4 enemy bullets on screen, down from 38 / 27.1. Test `AB` asserts peak ≤ 36 and average ≤ 14, so raising any cooldown or widening a volley will fail it — adjust the assertion deliberately if a buff is intended.
 
 ## Page must never scroll
 
