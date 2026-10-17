@@ -1,12 +1,12 @@
 # AGENTS.md — Battle City (坦克大战)
 
-Single-file HTML5 Canvas game (~193KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
+Single-file HTML5 Canvas game (~200KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
 
 ## Commands
 
 | Command | What |
 |---------|------|
-| `npx playwright test` | Run all 42 tests headless |
+| `npx playwright test` | Run all 43 tests headless |
 | `npx playwright test --headed` | Run with browser visible |
 | `npx playwright test -g "test name"` | Run single test by name |
 
@@ -19,7 +19,7 @@ Single-file HTML5 Canvas game (~193KB in `index.html`). No build, no bundler, no
 - Tests load the game via `file://` protocol — no server needed.
 - Config: `playwright.config.mjs` (headless, 800×800 viewport, 30s timeout). If Playwright's bundled Chromium is not installed (e.g. offline, so `npx playwright install` can't run), the config automatically falls back to the system Google Chrome via `channel: 'chrome'`.
 - Test file: `battle-city.spec.mjs` — ESM (`.mjs`) despite `"type": "commonjs"` in `package.json`.
-- All 42 tests are **flat top-level** (no `describe()` blocks).
+- All 43 tests are **flat top-level** (no `describe()` blocks).
 - Tests mix `page.waitForTimeout()` (time-based waits for game state) with explicit Playwright assertions. If a test is flaky, increasing these timeouts is the typical fix — **but not when the flake is a read race.** When a test spawns an entity that can die almost immediately, the "before" baseline (`score`, `killedCount`) must be read inside the *same* `page.evaluate()` as the spawn. A separate round-trip read can land after the death frame, so the assertion overshoots and no amount of extra waiting helps. Tests N and O hit this; see `battle-city.spec.mjs` for the atomic-baseline pattern.
 - Newer tests use the `window.__test` debug API (e.g. `triggerPlayerDeath`, `applyBuff`, `addLevelDebuff`, `hitPlayer`, `setBaseHp`) to set up deterministic game states.
 - `node_modules/` and `test-results/` are gitignored.
@@ -94,6 +94,17 @@ Three selectable player tanks live in `PLAYER_TANKS` (near `DIFFS`), chosen on t
 Damaged enemies draw a small bar above the hull via `drawEnemyHp(e)` (green → amber → red by remaining fraction); full-hp enemies show nothing. Do not fall back to a single shared tank size — test `Y` guards the differences.
 
 Damage order matters: a bullet first spends its `pierce` on the shield, and only the leftover `pierce` applies `dmg` to `e.hp`. That is why `heavy` (pierce 2, dmg 2) one-shots a single-layer shield while `standard`/`scout` (pierce 1) need two hits. Test `W` asserts all three cases — keep the "overflow pierce hits the hull" behaviour when touching the bullet-vs-enemy block.
+
+## Enemy base aggression
+
+Enemies must actually push the base — that is the pressure this game is built on. `enemyBaseRushChance(lv)` gives the weight (`0.50` at level 1 rising to `0.85`, multiplied by `diff().baseRush`, which is `1.3` in hard mode). Ordinary enemies pick their goal from a weighted roll: base > player > wander, and any enemy that can see the base within 13 tiles commits to it outright unless a player is right on top of it (3.5 tiles).
+
+Two things make the behaviour visible rather than theoretical:
+
+- Each enemy records `e.aiGoal` (`'base' | 'player' | 'random'`). Stuck/facing-obstacle detours consult it and prefer the base too.
+- Firing no longer requires seeing the player. `aimBase` (goal is the base, `canSeeBase`, within 14 tiles) both boosts the fire chance (`×1.8`) and satisfies the "may shoot" gate — before this, enemies that reached the base just stood next to it, because the fire check was `canSeePlayer` only. Enemies also turn to fire at the base whenever they share a row/column with it and have line of sight.
+
+Suicide tanks now charge the base half the time regardless of the player. Test `Z` asserts the weight curve, the goal distribution (more than 28% base) and that enemies parked next to the base actually chip its hp — keep those three properties when touching enemy AI.
 
 ## AI allies
 

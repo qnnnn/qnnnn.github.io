@@ -998,6 +998,7 @@
       debuffLevel: 5, debuffMul: 1, debuffBonus: 0, // 关卡惩罚起始关/概率/个数
       dropRate: 0.3, pickupFactor: 1,              // 击杀掉落率 / 地面道具间隔倍率
       bossHpMul: 1, shieldMul: 1,                  // 敌人护盾出现概率倍率
+      baseRush: 1,                                 // 敌人主动扑基地的权重倍率
     },
     hard: {
       label: '困难', lives: 1, maxHP: 3,
@@ -1009,10 +1010,14 @@
       typeShift: 2,
       debuffLevel: 3, debuffMul: 1.6, debuffBonus: 1,
       dropRate: 0.17, pickupFactor: 1.6,
-      bossHpMul: 1.35, shieldMul: 1.35,
+      bossHpMul: 1.35, shieldMul: 1.35, baseRush: 1.3,
     },
   };
   function diff(){ return hardMode ? DIFFS.hard : DIFFS.normal; }
+  // 敌人主动扑基地的权重：随关卡上升，困难模式更凶
+  function enemyBaseRushChance(lv){
+    return Math.min(0.85, 0.50 + Math.min(lv - 1, 10) * 0.035) * diff().baseRush;
+  }
   // ===== 三种可玩坦克 =====
   // speed 移速 / bulletSpeed 弹速 / cd 射击冷却（ticks）/ dmg 单发伤害 / pierce 破盾力
   // pierce 大于护盾层数时，溢出的部分直接打本体 —— 这是重炮"一炮破盾"的依据
@@ -2051,19 +2056,31 @@
       if (e.aiTimer<=0 || !e.aiDir) {
         if (e.type === 'suicide') {
           const target = (dualMode && player2 && player2.alive && Math.random()<0.5) ? player2 : player;
-          if (canSeePlayer && target) {
-            e.aiDir = dirTowards(e, target);
-            e.movePersist = 12 + ((Math.random()*8)|0);
-          } else {
-            e.aiDir = dirTowards(e, basePos);
+          // 自杀兵本来就该是基地的心腹大患：一半概率无视玩家直冲基地
+          if (Math.random() < 0.5 * diff().baseRush || !canSeePlayer || !target) {
+            e.aiDir = dirTowards(e, basePos); e.aiGoal = 'base';
             e.movePersist = 20 + ((Math.random()*15)|0);
+          } else {
+            e.aiDir = dirTowards(e, target); e.aiGoal = 'player';
+            e.movePersist = 12 + ((Math.random()*8)|0);
           }
         } else if (e.type === 'scout') {
-          e.aiDir = dirTowards(e, basePos);
+          e.aiDir = dirTowards(e, basePos); e.aiGoal = 'base';
           e.movePersist = 60;
         } else {
-          // 普通敌人：保持距离射击，不贴脸
-          if (canSeePlayer) {
+          // 普通敌人：基地是首要目标，其次才是玩家
+          const bcx = e.x + e.w/2, bcy = e.y + e.h/2;
+          const distBase = Math.hypot(basePos.x - bcx, basePos.y - bcy);
+          const rush = enemyBaseRushChance(level);
+          const nearBase = canSeeBase && distBase < TILE * 13;
+          const playerOnTop = canSeePlayer &&
+            Math.hypot(player.x - e.x, player.y - e.y) < TILE * 3.5;
+          if (nearBase && !playerOnTop) {
+            // 基地在望：直接压上去，不被玩家勾走
+            e.aiDir = dirTowards(e, basePos); e.aiGoal = 'base';
+            e.movePersist = 26 + ((Math.random()*18)|0);
+          } else if (canSeePlayer && Math.random() > rush) {
+            // 看得见玩家，但仍有相当概率掉头去打基地
             const dist = Math.hypot(player.x - e.x, player.y - e.y);
             if (dist < TILE * 4) {
               // 太近→侧移或后退
@@ -2083,18 +2100,20 @@
                 e.movePersist = 8 + ((Math.random()*8)|0);
               }
             }
+            e.aiGoal = 'player';
           } else {
-            const r = Math.random();
-            const seekP = 0.25 + Math.min(level-1, 8) * 0.04;
-            if (r < seekP && player && player.alive) {
-              e.aiDir = dirTowards(e, player);
+            // 加权：扑基地 > 追玩家 > 瞎逛
+            const baseW = rush, playerW = 0.42, randW = 0.22;
+            const r = Math.random() * (baseW + playerW + randW);
+            if (r < baseW) {
+              e.aiDir = dirTowards(e, basePos); e.aiGoal = 'base';
+              e.movePersist = 28 + ((Math.random()*18)|0);
+            } else if (r < baseW + playerW && player && player.alive) {
+              e.aiDir = dirTowards(e, player); e.aiGoal = 'player';
               e.movePersist = 15 + ((Math.random()*15)|0);
-            } else if (r < seekP + 0.25) {
-              e.aiDir = dirTowards(e, basePos);
-              e.movePersist = 20 + ((Math.random()*15)|0);
             } else {
-              e.aiDir = DIR_LIST[(Math.random()*4)|0];
-              e.movePersist = 25 + ((Math.random()*20)|0);
+              e.aiDir = DIR_LIST[(Math.random()*4)|0]; e.aiGoal = 'random';
+              e.movePersist = 18 + ((Math.random()*14)|0);
             }
           }
         }
@@ -2107,7 +2126,9 @@
           if (aheadTile === 2 || aheadTile === 5) {
             const isMovingVert = e.dir==='up'||e.dir==='down';
             const perpDirs = isMovingVert ? ['left','right'] : ['up','down'];
-            const tgt = e.type === 'suicide' ? (player&&player.alive?player:basePos) : (player&&player.alive?player:null);
+            const tgt = e.type === 'scout' ? basePos
+              : (e.type === 'suicide' ? ((player&&player.alive)?player:basePos)
+              : (Math.random() < 0.55 ? basePos : ((player&&player.alive)?player:basePos)));
             let next = bestDir(perpDirs, e, tgt);
             // 验证该方向前方无硬障碍，堵了换另一个
             const testD = DIR[next];
@@ -2128,9 +2149,23 @@
         }
         e.stuckFrames = 0;
       }
-      // 前方砖墙？开火击碎
+      // 前方砖墙→击碎；正对基地→直接轰基地
       if (e.cooldown <= 0 && e.type !== 'scout' && e.type !== 'suicide') {
-        if (tileAhead(e) === 1) shoot(e);
+        const aheadTile = tileAhead(e);
+        if (aheadTile === 1 || aheadTile === 3) {
+          shoot(e);
+        } else if (e.aiGoal === 'base' || Math.random() < 0.35) {
+          // 与基地同行/同列且视线通畅 → 转向基地开炮
+          const bcx = e.x + e.w/2, bcy = e.y + e.h/2;
+          const adx = Math.abs(bcx - basePos.x), ady = Math.abs(bcy - basePos.y);
+          const inRange = Math.hypot(adx, ady) < TILE * 13;
+          if (inRange && (adx < TILE * 0.9 || ady < TILE * 0.9) &&
+              hasLineOfSight(bcx, bcy, basePos.x, basePos.y)) {
+            const aim = adx < ady ? (basePos.y > bcy ? 'down' : 'up') : (basePos.x > bcx ? 'right' : 'left');
+            e.dir = aim; e.aiDir = aim; e.aiGoal = 'base'; e.aiTimer = 14;
+            shoot(e);
+          }
+        }
       }
       // 移动 + 卡住处理
       const before = {x:e.x, y:e.y};
@@ -2143,9 +2178,9 @@
           const ahead = tileAhead(e);
           const isHard = ahead === 2 || ahead === 5;
           const getTarget = () => {
-            if (e.type === 'suicide') return (player&&player.alive?player:basePos);
             if (e.type === 'scout') return basePos;
-            return (player&&player.alive?player:null);
+            if (e.type === 'suicide') return ((player&&player.alive) ? player : basePos);
+            return Math.random() < 0.6 ? basePos : ((player&&player.alive) ? player : basePos);
           };
           const isMovingVert = e.dir==='up'||e.dir==='down';
           const perpDirs = isMovingVert ? ['left','right'] : ['up','down'];
@@ -2285,11 +2320,15 @@
         );
         const D = diff();
         const baseChance = (D.shootBase + Math.min(level - 1, 6) * D.shootStep) * D.shootMul;
-        const shootChance = aligned ? baseChance * 3 : baseChance;
+        // 冲着基地打的时候也要开火（原来看不见玩家就一枪不放，导致敌人摸到基地也只是干站着）
+        const bxC = e.x + e.w/2, byC = e.y + e.h/2;
+        const aimBase = e.aiGoal === 'base' && canSeeBase &&
+          Math.hypot(base.c*TILE + TILE/2 - bxC, base.r*TILE + TILE/2 - byC) < TILE * 14;
+        const shootChance = (aligned ? baseChance * 3 : baseChance) * (aimBase ? 1.8 : 1);
         // 帧率无关：概率按 dt 累积，避免高刷屏(120Hz)每帧掷骰导致射击翻倍
         if (e.fireAcc === undefined) e.fireAcc = Math.random();
         e.fireAcc += shootChance * dt;
-        if (e.fireAcc >= 1 && canSeePlayer) { e.fireAcc -= 1; shoot(e); }
+        if (e.fireAcc >= 1 && (canSeePlayer || aimBase)) { e.fireAcc -= 1; shoot(e); }
       }
       // 卡死防卡关：完全无法移动的敌人（约 10 秒原地不动）按死亡清除并计入本关进度，
       // 避免出现"击杀数凑不满配额"导致关卡永远无法通关（不计分）
@@ -3998,6 +4037,19 @@
   // ===== 更新日志 =====
   const CHANGELOG = [
     {
+      ver: 'v1.30-beta', date: '2026-10-19',
+      tags: [['new','敌人'],['fix','体验']],
+      desc: [
+        '敌人现在真的会攻基地了：普通敌人选路时「扑基地」权重第 1 关就有 50%，随关卡涨到 85%（困难再 ×1.3），原来只有固定 25% 而且排在追玩家后面',
+        '看得见玩家时也不再一门心思追人：有 50%～85% 的概率掉头去压基地，基地在望（13 格内且视线通畅）时更是直接扑上去，不会被玩家勾走',
+        '自杀兵一半概率无视玩家直冲基地 —— 它们本来就该是基地的心腹大患',
+        '贴着基地就会开火：原来敌人只有「看得见玩家」才开枪，摸到基地旁边也只是干站着；现在冲基地途中照打，同排同列视线通畅时还会专门转向基地轰一炮',
+        '卡住绕路时也优先朝基地方向绕，而不是原地打转',
+        '新增 1 个回归用例（进攻权重、目标分布、摆在基地旁必须打出伤害）',
+      ],
+      minor: [4, 5],
+    },
+    {
       ver: 'v1.29-beta', date: '2026-10-19',
       tags: [['new','敌人'],['fix','平衡']],
       desc: [
@@ -4883,6 +4935,15 @@
     },
     get enemiesTotalNow() { return enemiesTotal; },
     get maxAliveNow() { return maxAliveFor(level); },
+    // 敌人 AI 目标统计（攻基地意识）
+    enemyGoals() {
+      return enemies.filter(e => e.alive).map(e => ({
+        goal: e.aiGoal || 'none',
+        dist: Math.round(Math.hypot(base.c*TILE+TILE/2 - (e.x + e.w/2), base.r*TILE+TILE/2 - (e.y + e.h/2))),
+      }));
+    },
+    forceEnemyReplan() { for (const e of enemies) if (e.alive) e.aiTimer = 0; },
+    baseRushChanceAt(lv) { return enemyBaseRushChance(lv); },
     enemiesFor(lv) { return enemiesForLevel(lv); },
     maxAliveAt(lv) { return maxAliveFor(lv); },
   };

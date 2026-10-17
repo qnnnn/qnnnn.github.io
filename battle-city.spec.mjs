@@ -658,3 +658,46 @@ test('Y: enemy builds differ in size, hp and speed', async ({ page }) => {
   });
   expect(scoutDmg * 2).toBe(res.light.hp);
 });
+test('Z: enemies actively press the base', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(2400);   // 等开局过场结束
+
+  // 攻基地权重：第 1 关就不低，随关卡上升但有上限
+  const chances = await page.evaluate(() => {
+    const t = window.__test;
+    return { lv1: t.baseRushChanceAt(1), lv10: t.baseRushChanceAt(10), lv20: t.baseRushChanceAt(20) };
+  });
+  expect(chances.lv1).toBeGreaterThanOrEqual(0.45);
+  expect(chances.lv10).toBeGreaterThan(chances.lv1);
+  expect(chances.lv20).toBeLessThanOrEqual(0.86);   // 有硬顶
+
+  // 目标分布：扑基地不能只是少数派行为
+  const tally = await page.evaluate(async () => {
+    const t = window.__test;
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const out = { base: 0, player: 0, random: 0, total: 0 };
+    for (let i = 0; i < 60; i++) {
+      t.forceEnemyReplan();
+      await wait(25);
+      for (const g of t.enemyGoals()) { out[g.goal] = (out[g.goal] || 0) + 1; out.total++; }
+    }
+    return out;
+  });
+  expect(tally.total).toBeGreaterThan(40);
+  expect(tally.base / tally.total).toBeGreaterThan(0.28);
+
+  // 摆到基地边上就应该真的把基地打掉血
+  await page.evaluate(() => {
+    const t = window.__test;
+    t.clearEnemiesNow();
+    t.spawnEnemyOfKind('medium', 176, 400);
+    t.spawnEnemyOfKind('medium', 240, 400);
+  });
+  await page.waitForTimeout(12000);
+  const after = await page.evaluate(() => ({
+    hp: window.__test.baseHp,
+    goals: window.__test.enemyGoals().map(g => g.goal),
+  }));
+  expect(after.hp).toBeLessThan(5);
+  expect(after.goals).toContain('base');
+});
