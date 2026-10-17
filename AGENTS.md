@@ -129,6 +129,14 @@ Asymmetry is intentional and should be preserved: the two panel cards are offset
 
 The canvas HUD text (combo, level intro, boss warning, pause card) uses the same rules: flat fills, hard 2–3px offset shadows, `shapeA` panels. The `blind` debuff is a hard-edged rectangular viewport (four flat rects), not a radial vignette.
 
+## Changelog keeps only the big items expanded
+
+`CHANGELOG` entries in `index.html` render mostly-collapsed. `renderChangelog()` splits each entry's `desc` into "major" (listed) and "minor" (wrapped in a `<details class="cl-minor">` labelled `其余 N 项小改动`).
+
+The split is driven by an optional `minor: [index, …]` field on an entry: indices listed there are folded, everything else stays expanded. When `minor` is absent and the entry has more than 3 items, everything from index 3 onward is folded automatically — so old entries shrink without touching them, and new entries fold their tail by default.
+
+Do not rework this into "newest version expands, old ones collapse" — the requirement is per-change importance, not recency. When adding a changelog entry, put the headline changes first and either let the 3-item rule fold the rest or set `minor` explicitly.
+
 ## Deployment
 
 GitHub Pages at `qnnnn.github.io` (packaged as a subpath of the `qnnnn/qnnnn.github.io` repo). Push to `main` to deploy — the site serves `index.html` at the repo root.

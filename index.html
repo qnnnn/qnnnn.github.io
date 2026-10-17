@@ -600,6 +600,21 @@
   .cl-tag.t-other { background: #2c3f52; color: #c3d6e8; }
   .cl-desc { color: var(--ink-2); font-size: 12px; line-height: 1.75; }
   .cl-desc li { margin-left: 15px; }
+  .cl-minor { margin-top: 5px; }
+  .cl-minor > summary {
+    cursor: pointer;
+    list-style: none;
+    color: var(--ink-3);
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    padding: 3px 0;
+    user-select: none;
+  }
+  .cl-minor > summary::-webkit-details-marker { display: none; }
+  .cl-minor > summary::before { content: '▸ '; color: #37dbff; }
+  .cl-minor[open] > summary::before { content: '▾ '; }
+  .cl-minor > summary:hover { color: #cfe3f5; }
+  .cl-minor .cl-desc { margin-top: 2px; opacity: .8; font-size: 11.5px; }
   .cl-close { margin-top: 12px; align-self: center; flex-shrink: 0; }
   .hidden { display: none !important; }
 
@@ -3914,6 +3929,15 @@
   // ===== 更新日志 =====
   const CHANGELOG = [
     {
+      ver: 'v1.28', date: '2026-10-18',
+      tags: [['other','界面'],['other','体验']],
+      desc: [
+        '更新日志改为只展开主要改动：每个版本默认只列前几条大改动，其余收进「其余 N 项小改动」，点一下才展开',
+        'v1.27 / v1.26 / v1.25 逐条标过主次（比如「每关总量 +2 降到 +1.5」这种微调归到折叠里），更早的版本自动只显示前 3 条',
+        '折叠块用的是原生 details 元素，键盘也能展开收起，展开状态不会带出多余的光晕或动画',
+      ],
+    },
+    {
       ver: 'v1.27', date: '2026-10-18',
       tags: [['new','坦克'],['new','敌人']],
       desc: [
@@ -3924,6 +3948,7 @@
         '每关敌军总量增量从 +2 降到 +1.5，第 14 关从 46 个降到 38 个；开局同时登场的敌人也少了一个',
         '面板武器栏新增「坦克」一行，游戏中能看到当前用的是哪种坦克；新增 3 个回归用例',
       ],
+      minor: [4, 5],
     },
     {
       ver: 'v1.26', date: '2026-10-18',
@@ -3937,6 +3962,7 @@
         '本关惩罚「致盲」从柔和暗角改成硬边矩形视野框，只留玩家周围一块方窗',
         '子弹与道具去掉发光渐隐，改成实心弹芯 + 实色外圈',
       ],
+      minor: [3, 5, 6],
     },
     {
       ver: 'v1.25', date: '2026-10-18',
@@ -3948,6 +3974,7 @@
         '顺带压缩面板间距（卡片内边距、行距、按键行、静音按钮），使「作弊 + 困难 + 本关惩罚 + 连杀」全开时也只溢出 1px',
         '三种窗口尺寸 × 四种状态实测：游戏区与画布的顶部坐标恒定不变',
       ],
+      minor: [3, 4],
     },
     {
       ver: 'v1.24', date: '2026-10-18',
@@ -4169,11 +4196,22 @@
       const div = document.createElement('div');
       div.className = 'cl-item';
       const tagsHtml = item.tags.map(([cls,label]) => '<span class="cl-tag t-'+cls+'">'+label+'</span>').join('');
-      const descHtml = item.desc.map(d => '<li>'+d+'</li>').join('');
+      // 只展开主要改动；小改动收进可折叠块。默认把第 4 条之后算小改动，
+      // 需要时用条目的 minor:[下标...] 精确指定。
+      const minorSet = new Set(item.minor || []);
+      if (!item.minor && item.desc.length > 3) for (let i = 3; i < item.desc.length; i++) minorSet.add(i);
+      const major = [], minorList = [];
+      item.desc.forEach((d, i) => (minorSet.has(i) ? minorList : major).push(d));
+      if (!major.length && minorList.length){ major.push(minorList.shift()); }
+      const li = arr => arr.map(d => '<li>'+d+'</li>').join('');
+      const minorHtml = minorList.length
+        ? '<details class="cl-minor"><summary>其余 ' + minorList.length + ' 项小改动</summary>' +
+          '<ul class="cl-desc">' + li(minorList) + '</ul></details>'
+        : '';
       div.innerHTML =
         '<div class="cl-ver">'+item.ver+'<span class="cl-date">'+item.date+'</span></div>' +
         '<div class="cl-tags">'+tagsHtml+'</div>' +
-        '<ul class="cl-desc">'+descHtml+'</ul>';
+        '<ul class="cl-desc">' + li(major) + '</ul>' + minorHtml;
       clList.appendChild(div);
     }
     clList.scrollTop = 0;
