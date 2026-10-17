@@ -1241,6 +1241,11 @@
       // 三阶段：phase3 狂暴（25% 血以下）
       phase3: false, ringCooldown: 0, summonCooldown: 0
     };
+    // 出生点如果被地形堵住，先清出一片空地，避免一出生就卡在墙里
+    for (let r = 3; r <= 7; r++) for (let c = 9; c <= 12; c++){
+      if (r >= 0 && c >= 0 && r < ROWS && c < COLS && map[r][c] === 1) map[r][c] = 0;
+    }
+    mapDirty = true;
     bossWarn = 60; // Boss 出场警告横幅
     shake(6, 2);
   }
@@ -1540,6 +1545,73 @@
     for (const a of allies) if (a!==t && a.alive && rectsOverlap(box,a)) return false;
     for (const e of enemies) if (e!==t && e.alive && rectsOverlap(box,e)) return false;
     return true;
+  }
+
+  // ===== Boss 移动辅助 =====
+  // Boss 占 2×2 格，canMove 只查四角，1 格宽的墙柱夹在中间会漏检 → Boss 会"嵌"进墙里卡死。
+  // 这里改成遍历 Boss 覆盖的所有格子，并给它碾碎砖墙 + 换向 + 最后的传送兜底。
+  const BOSS_SOLID = { 1:1, 2:1, 3:1, 5:1 };
+  function bossRectBlocked(nx, ny){
+    const c0 = (nx / TILE) | 0, c1 = ((nx + boss.w - 1) / TILE) | 0;
+    const r0 = (ny / TILE) | 0, r1 = ((ny + boss.h - 1) / TILE) | 0;
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++){
+      const v = (r < 0 || c < 0 || r >= ROWS || c >= COLS) ? 2 : map[r][c];
+      if (BOSS_SOLID[v]) return true;
+    }
+    return false;
+  }
+  function bossCanGo(dir){
+    const d = DIR[dir];
+    if (!d) return false;
+    const probe = Math.max(3, boss.speed * 4);
+    return !bossRectBlocked(boss.x + d.x * probe, boss.y + d.y * probe);
+  }
+  // 选方向：优先朝玩家 / 基地，但只能是走得通的方向
+  function pickBossDir(){
+    const cands = [];
+    if (player && player.alive) cands.push(dirTowards(boss, player));
+    if (base && base.alive) cands.push(dirTowards(boss, {x: base.c*TILE, y: base.r*TILE, alive:true}));
+    cands.push(Math.random() < 0.5 ? 'left' : 'right', Math.random() < 0.5 ? 'up' : 'down');
+    cands.push('up','down','left','right');
+    const ok = [];
+    for (const d of cands) if (!ok.includes(d) && bossCanGo(d)) ok.push(d);
+    if (!ok.length) return null;
+    const r = Math.random();
+    if (r < 0.6) return ok[0];
+    if (r < 0.85 && ok.length > 1) return ok[1];
+    return ok[(Math.random() * ok.length) | 0];
+  }
+  // Boss 碾碎身下的砖墙（钢墙 / 水 / 基地墙不动），避免被砖迷宫卡死
+  function crushBricksUnderBoss(nx, ny){
+    const c0 = (nx / TILE) | 0, c1 = ((nx + boss.w - 1) / TILE) | 0;
+    const r0 = (ny / TILE) | 0, r1 = ((ny + boss.h - 1) / TILE) | 0;
+    let hit = false;
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++){
+      if (r < 0 || c < 0 || r >= ROWS || c >= COLS) continue;
+      if (map[r][c] !== 1) continue;
+      if (base && base.alive && r >= base.r - 2 && r <= base.r && c >= base.c - 2 && c <= base.c + 2) continue;
+      map[r][c] = 0;
+      explode(c * TILE + 8, r * TILE + 8, '#c98d63');
+      hit = true;
+    }
+    if (hit) mapDirty = true;
+    return hit;
+  }
+  // 兜底：连续多帧一步都挪不动，就把 Boss 挪到玩家附近的空地，别让它原地罚站
+  function relocateBoss(){
+    for (let i = 0; i < 240; i++){
+      const c = 2 + ((Math.random() * (COLS - 5)) | 0);
+      const r = 2 + ((Math.random() * (ROWS - 5)) | 0);
+      const nx = c * TILE, ny = r * TILE;
+      if (bossRectBlocked(nx, ny)) continue;
+      if (player && player.alive && Math.hypot(nx - player.x, ny - player.y) < TILE * 4) continue;
+      boss.x = nx; boss.y = ny;
+      boss.moveDir = null; boss.moveTimer = 0; boss.stuckFrames = 0;
+      explode(nx + TILE, ny + TILE, boss.color);
+      return true;
+    }
+    boss.moveDir = null; boss.moveTimer = 0; boss.stuckFrames = 0;
+    return false;
   }
 
   function moveTank(t, dt) {
@@ -2074,16 +2146,22 @@
       const finalRage = boss.phase3;
       const spd = boss.speed * (enraged ? 1.15 : 1) * (finalRage ? 1.2 : 1);
       if (boss.moveTimer <= 0 || !boss.moveDir) {
-        const r = Math.random();
-        if (r < 0.5) boss.moveDir = dirTowards(boss, player);
-        else if (r < 0.7) boss.moveDir = Math.random()<0.5 ? 'left' : 'right';
-        else boss.moveDir = dirTowards(boss, {x:base.c*TILE, y:base.r*TILE, alive:true});
-        boss.dir = boss.moveDir;
+        boss.moveDir = pickBossDir();   // 只在走得通的方向里挑（优先朝玩家/基地）
+        if (boss.moveDir) boss.dir = boss.moveDir;
         boss.moveTimer = finalRage ? 15 + ((Math.random()*20)|0) : 25 + ((Math.random()*35)|0);
       }
-      const d = DIR[boss.moveDir];
+      const d = DIR[boss.moveDir || boss.dir] || DIR.down;
       const nx = boss.x + d.x * spd * dt, ny = boss.y + d.y * spd * dt;
-      if (canMove(boss, nx, ny)) { boss.x = nx; boss.y = ny; }
+      if (!bossRectBlocked(nx, ny)) {
+        boss.x = nx; boss.y = ny; boss.stuckFrames = 0;
+      } else if (crushBricksUnderBoss(nx, ny)) {
+        boss.x = nx; boss.y = ny; boss.stuckFrames = 0;   // 砖墙被碾碎，照常推进
+      } else {
+        // 钢墙 / 水 / 基地挡路：立刻换向，别对着墙顶到天荒地老
+        boss.stuckFrames = (boss.stuckFrames || 0) + dt;
+        boss.moveTimer = 0; boss.moveDir = null;
+        if (boss.stuckFrames > 150) relocateBoss();
+      }
       // 主射击（阶段 3 连发更多）
       if (boss.cooldown <= 0 && player && player.alive && hasLineOfSight(boss.x+boss.w/2, boss.y+boss.h/2, player.x+player.w/2, player.y+player.h/2)) {
         const bulletCount = (finalRage ? 3 : 1) + Math.floor(level / 10);
@@ -3638,6 +3716,19 @@
   // ===== 更新日志 =====
   const CHANGELOG = [
     {
+      ver: 'v1.24', date: '2026-10-18',
+      tags: [['fix','Boss'],['other','体验']],
+      desc: [
+        '修复 Boss 容易卡墙：Boss 体型是 2×2 格，原来只检测四角，卡在中间的砖柱、钢块根本测不到，会直接「嵌」进墙里出不来',
+        '碰撞检测改为遍历 Boss 覆盖的每一格，钢墙/水/基地照样挡路，但不会再漏检',
+        'Boss 撞上砖墙会直接碾碎（不含基地护墙），不会再被砖迷宫困住',
+        '选路只挑走得通的方向，被挡住立刻换向，不再对着墙顶满 1 秒',
+        '兜底：连续 2.5 秒一步都挪不动，就把 Boss 挪到玩家附近的空地',
+        'Boss 不再被小兵挡路；出场时会先清空出生点周围的砖墙，避免一出生就卡在墙里',
+        '新增回归用例 U：Boss 始终在移动、从不嵌进墙、任何时刻都有可走方向',
+      ],
+    },
+    {
       ver: 'v1.23', date: '2026-10-18',
       tags: [['fix','操作'],['other','体验']],
       desc: [
@@ -4224,6 +4315,10 @@
     },
     get pickupsLength() { return pickups.length; },
     get bossAlive() { return boss !== null && boss.alive; },
+    get bossX() { return boss ? boss.x : -1; },
+    get bossY() { return boss ? boss.y : -1; },
+    get bossInWall() { return boss ? bossRectBlocked(boss.x, boss.y) : false; },
+    get bossCanGoAny() { return boss ? ['up','down','left','right'].some(d => bossCanGo(d)) : false; },
     get isRunning() { return running; },
     get playerY() { return player ? player.y : -1; },
     get playerAlive() { return player !== null && player.alive; },
@@ -4239,6 +4334,7 @@
     get level() { return level; },
     get baseHp() { return base ? base.hp : -1; },
     setLevel(lv) { level = lv; levelEl.textContent = lv; rollLevelDebuffs(); },
+    reloadLevel() { if (running) reloadLevel(); },
     clearEnemies() { enemies = []; },
     // 基地守卫验证钩子
     get allyAlive() { return allies.some(a => a.alive); },

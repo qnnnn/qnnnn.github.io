@@ -504,3 +504,30 @@ test('T: game keys never scroll the page, and buttons drop focus', async ({ page
   expect(await page.evaluate(() => window.__test.isRunning)).toBe(true);
   expect(await page.locator('#overlay').isVisible()).toBe(false);
 });
+
+test('U: boss keeps moving and never sits inside a wall', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(400);
+  // 直接跳到 Boss 关（第 5 关）
+  await page.evaluate(() => { window.__test.setLevel(5); window.__test.reloadLevel(); });
+  await page.waitForTimeout(800);
+  expect(await page.evaluate(() => window.__test.bossAlive)).toBe(true);
+
+  const samples = [];
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(400);
+    samples.push(await page.evaluate(() => ({
+      x: window.__test.bossX, y: window.__test.bossY,
+      inWall: window.__test.bossInWall, canGo: window.__test.bossCanGoAny,
+      alive: window.__test.bossAlive,
+    })));
+  }
+  const alive = samples.filter(s => s.alive);
+  expect(alive.length).toBeGreaterThan(8);
+  // 从没嵌在墙里
+  expect(alive.some(s => s.inWall)).toBe(false);
+  // 任何时刻都至少有一个方向能走，而且确实在移动
+  expect(alive.some(s => !s.canGo)).toBe(false);
+  const unique = new Set(alive.map(s => s.x + ',' + s.y));
+  expect(unique.size).toBeGreaterThan(alive.length / 2);
+});
