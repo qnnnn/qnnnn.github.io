@@ -970,10 +970,11 @@
   let allies = [];   // AI 队友（数组）：随关卡增加，会主动出击
   let score=0, level=1, lives=3, p2lives=3, running=false, paused=false, spawnTimer=0, pickupTimer=0;
   let bulletUpgraded=false, doubleShot=false, freezeTimer=0, shakeTimer=0, shakeIntensity=0;
+  let magnetTimer=0, slowFieldTimer=0, blastCharges=0, ammoBuffTimer=0, allyRegenTimer=0;
   let permHP=0, permLives=0, permSpeed=0, permFire=false, permDouble=false, permShield=0;
   let playerHP=5, playerMaxHP=5;
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, hardMode=false, waveSpawned=false;
-  let keys = {}, respawnTimer = null, p2respawnTimer = null, airdropTimer = 0, lastTime = 0;
+  let keys = {}, respawnTimer = null, p2respawnTimer = null, airdropTimer = 0, lastTime = 0, __now = 0;
   let playerInvTimer = 0;                       // 玩家复活无敌计时
   let levelIntroTimer = 0;                       // 关卡过场动画计时
   let hitStopTimer = 0;
@@ -1557,7 +1558,7 @@
     }
   }
 
-  const PICKUP_TYPES = ['shield','bullet','doubleshot','baseshield','freeze','bomb','apbullet','repair','medkit','speed','triple','laser','score','life'];
+  const PICKUP_TYPES = ['shield','bullet','doubleshot','baseshield','freeze','bomb','apbullet','repair','medkit','speed','triple','laser','score','life','ammoCrate','medic','magnet','slowField','blast'];
 
   // 本关惩罚（debuff）：关卡越靠后，随机附加的整关负面效果
   function rollLevelDebuffs(){
@@ -1620,6 +1621,11 @@
     available.push('bomb');
     available.push('medkit');
     if (lives < 9) available.push('life');
+    available.push('ammoCrate');
+    available.push('medic');
+    available.push('magnet');
+    available.push('slowField');
+    available.push('blast');
     if (available.length === 0) return;
     for (let i=0;i<50;i++){
       const r = 4 + ((Math.random()*(ROWS-8))|0);
@@ -1824,8 +1830,9 @@
   }
 
   function moveTank(t, dt) {
+    const speedNow = slowFieldTimer > 0 ? t.speed * 0.6 : t.speed;
     const d = DIR[t.dir];
-    const step = t.speed * dt;
+    const step = speedNow * dt;
     let nx = t.x + d.x * step, ny = t.y + d.y * step;
     // 窄通道对齐：沿 x 移动时把 y 吸附到最近格线（反之亦然）。
     // 坦克与格子等宽(16px)，若位置偏 1~2px，1 格通道四角会同时擦墙卡死。
@@ -1925,8 +1932,8 @@
 
   // 爆炸：圆形火花 + 冲击波光环（卡通打击感）
   function explode(x,y,color,isBoss){
-    const count = isBoss ? 46 : 22;
-    const maxLife = isBoss ? 40 : 26;
+    const count = isBoss ? 20 : 10;
+    const maxLife = isBoss ? 36 : 22;
     for (let i=0;i<count;i++){
       const ang = Math.random() * TAU;
       const spd = Math.random() * (isBoss ? 5.4 : 3.6) + 0.4;
@@ -1940,8 +1947,8 @@
         size: 1.7 + Math.random() * (isBoss ? 3.4 : 2.4)
       });
     }
-    particles.push({ x, y, vx:0, vy:0, life:maxLife, maxLife, ring:true, r: isBoss ? 30 : 14, color: isBoss ? '#ffd9a3' : '#ffffff' });
-    if (isBoss) particles.push({ x, y, vx:0, vy:0, life:maxLife*1.25, maxLife:maxLife*1.25, ring:true, r:48, color:'#ffa76b' });
+    particles.push({ x, y, vx:0, vy:0, life:maxLife, maxLife, ring:true, r: isBoss ? 26 : 12, color: isBoss ? '#ffd9a3' : '#ffffff' });
+    if (isBoss) particles.push({ x, y, vx:0, vy:0, life:maxLife*1.25, maxLife:maxLife*1.25, ring:true, r:40, color:'#ffa76b' });
     sfx.boom();
   }
   function shake(t,i){ shakeTimer=Math.max(shakeTimer,t); shakeIntensity=Math.max(shakeIntensity,i); }
@@ -1949,10 +1956,11 @@
   // 弹匣回填：满弹不动，缺一发就按坦克自己的 reloadTicks 补一发
   function reloadTank(t, dt) {
     if (!t || !t.ammoMax || t.ammo >= t.ammoMax) { t.reloadTimer = 0; return; }
+    const rt = ammoBuffTimer > 0 ? Math.max(8, t.reloadTicks * 0.65) : t.reloadTicks;
     t.reloadTimer -= dt;
     while (t.reloadTimer <= 0 && t.ammo < t.ammoMax) {
       t.ammo++;
-      t.reloadTimer += t.reloadTicks;
+      t.reloadTimer += rt;
     }
   }
   function updateAmmoDisplay(){
@@ -2694,6 +2702,10 @@
       a.fireAcc = 0;
     }
     if (allies.some(a => a.dead)) allies = allies.filter(a => !a.dead);
+    if (allyRegenTimer > 0){
+      const regen = dt / 60; // 1 hp/秒
+      for (const a of allies) if (a.alive && a.hp < a.maxHp) a.hp = Math.min(a.maxHp, a.hp + regen);
+    }
 
     // 子弹
     for (const b of bullets) {
@@ -2773,6 +2785,27 @@
             if (comboCount >= 2){ addScore(comboCount * 10); comboDisplayTimer = 60; }
           }
           else { explode(b.x,b.y,'#888'); addScore(20); }
+          // 爆破弹：1 charges 触发，对半径 2.5 tile 内其他敌人各 1 伤害（中心仍按原伤害处理）
+          if (blastCharges > 0 && b.from === 'p'){
+            const R = TILE * 2.5, R2 = R * R;
+            for (const o of enemies) if (o !== e && o.alive){
+              const ox = o.x + o.w/2, oy = o.y + o.h/2;
+              if ((ox - b.x)*(ox - b.x) + (oy - b.y)*(oy - b.y) <= R2){
+                o.hp -= 1;
+                explode(ox, oy, o.color);
+                if (o.hp <= 0){
+                  o.alive = false;
+                  enemiesKilledThisLevel++; totalKills++;
+                  const pts = addScore(100);
+                  addFloater(o.x+8, o.y-2, '+'+pts, '#ffd24d', 10);
+                  spawnDrop(o);
+                  if (o.type === 'splitter') splitEnemy(o);
+                  hitStopTimer = 4;
+                }
+              }
+            }
+            blastCharges--;
+          }
           b.dead=true; break;
         }
       } else {
@@ -2930,6 +2963,11 @@
       laser: ['🔫 激光速射','#ff4444'],
       score: ['💰 双倍得分','#ffd24d'],
       life: ['💖 加命','#ff88aa'],
+      ammoCrate: ['🧰 弹药箱','#8be9fd'],
+      medic: ['🩹 治疗站','#ffb86c'],
+      magnet: ['🧲 强磁','#bd93f9'],
+      slowField: ['🌀 减速场','#50fa7b'],
+      blast: ['🧨 爆破弹','#ff79c6'],
     };
     function showPickupToast(type) {
       const info = PICKUP_NAMES[type];
@@ -2944,23 +2982,25 @@
       el._timer = setTimeout(() => { el.style.opacity = '0'; setTimeout(() => { if (el.style.opacity === '0') el.style.display = 'none'; }, 300); }, 1800);
     }
 
-    // 道具磁吸：距玩家 2.5 格内自动滑向玩家（提升拾取手感）
+    // 道具磁吸：距玩家 2.5 格内自动滑向玩家（强磁道具：8 秒内半径 5 格、速度 4.5）
+    const magnetR2 = magnetTimer > 0 ? TILE*TILE*25 : TILE*TILE*6.25;
+    const pullSpeed = magnetTimer > 0 ? 4.5 : 2.2;
     for (const p of pickups){
       if (p.dead) continue;
       const pcx = p.x + 8, pcy = p.y + 8;
       let magnet = null;
       if (player && player.alive){
         const dx = player.x+8-pcx, dy = player.y+8-pcy;
-        if (dx*dx+dy*dy < TILE*TILE*6.25) magnet = {x:player.x+8, y:player.y+8};
+        if (dx*dx+dy*dy < magnetR2) magnet = {x:player.x+8, y:player.y+8};
       }
       if (!magnet && dualMode && player2 && player2.alive){
         const dx = player2.x+8-pcx, dy = player2.y+8-pcy;
-        if (dx*dx+dy*dy < TILE*TILE*6.25) magnet = {x:player2.x+8, y:player2.y+8};
+        if (dx*dx+dy*dy < magnetR2) magnet = {x:player2.x+8, y:player2.y+8};
       }
       if (magnet){
         const dx = magnet.x-pcx, dy = magnet.y-pcy;
         const dist = Math.sqrt(dx*dx+dy*dy) || 1;
-        const pull = Math.min(2.2*dt, dist);
+        const pull = Math.min(pullSpeed*dt, dist);
         p.x += dx/dist*pull; p.y += dy/dist*pull;
       }
     }
@@ -2985,6 +3025,11 @@
         if (p.type === 'triple'){ tripleCharges++; }          // 三连发次数 +1
         if (p.type === 'laser'){ laserCharges++; }            // 激光次数 +1
         if (p.type === 'score'){ scoreCharges++; }            // 双倍得分次数 +1
+        if (p.type === 'ammoCrate'){ if (player){ player.ammo = player.ammoMax; player.reloadTimer = 0; } ammoBuffTimer = 240; }  // 弹药箱：填满弹匣 + 240 tick 回填加速
+        if (p.type === 'medic'){ for (const a of allies) if (a.alive){ a.hp = a.maxHp; } allyRegenTimer = 360; }  // 治疗站：全队满血 + 360 tick 每秒回 1
+        if (p.type === 'magnet'){ magnetTimer = 480; }         // 强磁：480 tick 内磁吸 4.5×2.2 = 拉近速度×4.5
+        if (p.type === 'slowField'){ slowFieldTimer = 360; }   // 减速场：360 tick 敌人/玩家/友军减速 0.6
+        if (p.type === 'blast'){ blastCharges += 3; }          // 爆破弹：3 次范围伤害
         if (p.type === 'life'){ lives++; livesEl.textContent = lives; } // 加命
         if (p.type === 'repair'){
           if (base.alive){
@@ -3050,6 +3095,10 @@
     if (dmgFlash > 0) dmgFlash-=dt;
     if (baseWarn > 0) baseWarn-=dt;
     if (bossWarn > 0) bossWarn-=dt;
+    if (magnetTimer > 0) magnetTimer-=dt;
+    if (slowFieldTimer > 0) slowFieldTimer-=dt;
+    if (ammoBuffTimer > 0) ammoBuffTimer-=dt;
+    if (allyRegenTimer > 0) allyRegenTimer-=dt;
     // 加速移动状态：无按键自动结束
     if (!(keys['w']||keys['s']||keys['a']||keys['d']||keys['ArrowUp']||keys['ArrowDown']||keys['ArrowLeft']||keys['ArrowRight'])) speedActive = false;
     // 本关惩罚：失血（每秒-1，最低留1，不致死）
@@ -3106,6 +3155,7 @@
 
     // 粒子
     for (const p of particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; }
+    if (particles.length > 80) particles.splice(0, particles.length - 80);
     particles = particles.filter(p=>p.life>0);
     // 飘字
     for (const f of floaters){ f.y += f.vy*dt; f.life -= dt; }
@@ -3209,6 +3259,7 @@
     enemiesTotal = enemiesForLevel(level);
     shieldCharges = 0; bulletUpgraded = permFire; doubleShot = permDouble; baseShieldCharges = permShield; freezeTimer = 0; apCharges = 0;
     speedCharges = 0; tripleCharges = 0; laserCharges = 0; scoreCharges = 0; speedActive = false;
+    magnetTimer = 0; slowFieldTimer = 0; blastCharges = 0; ammoBuffTimer = 0; allyRegenTimer = 0;
     dmgFlash = 0; bossWarn = 0; baseWarn = 0;
     p1SlideTimer = 0; p1SlideDir = null; p1SlideSpeed = 0; p2SlideTimer = 0; p2SlideDir = null; p2SlideSpeed = 0;
     comboCount = 0; comboTimer = 0; comboDisplayTimer = 0;
@@ -3405,7 +3456,7 @@
     const hpPct = base && base.alive ? base.hp / base.maxHp : 0;
     const col = hpPct > 0.6 ? '#ffd166' : (hpPct > 0.3 ? '#ff9f43' : '#ff5c6c');
     const cx = x + TILE / 2, cy = y + TILE / 2;
-    const pulse = 0.5 + Math.sin(Date.now() / 420) * 0.5;
+    const pulse = 0.5 + Math.sin(__now / 420) * 0.5;
     // 外圈脉冲（实线，不做光晕）
     circ(ctx, cx, cy, 12 + pulse * 1.4);
     ctx.strokeStyle = alpha(col, 0.42); ctx.lineWidth = 1.4; ctx.stroke();
@@ -3526,7 +3577,7 @@
   // 敌人护盾：六边形能量环，层数越多圈越外
   function drawShieldRing(e){
     const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
-    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200 + e.x * 0.7);
+    const pulse = 0.5 + 0.5 * Math.sin(__now / 200 + e.x * 0.7);
     for (let k = 0; k < e.shield; k++){
       const rad = 9.2 + k * 2.6 + pulse * 0.5;
       ctx.beginPath();
@@ -3567,7 +3618,7 @@
     const cLow = mix(base, '#03080f', 0.42);
     const cDeep = mix(base, '#03080f', 0.74);
     const edge = 'rgba(2,7,14,.8)';
-    const now = Date.now();
+    const now = __now;
     const BW = b.bodyW, BH = b.bodyH;
     const turretY = -BH * 0.10;
     ctx.save();
@@ -3596,13 +3647,6 @@
       // 外缘反光
       ctx.strokeStyle = 'rgba(200,235,255,.3)'; ctx.lineWidth = 0.55;
       ctx.beginPath(); ctx.moveTo(bx + 0.55, -treadH / 2 + 0.9); ctx.lineTo(bx + 0.55, treadH / 2 - 0.9); ctx.stroke();
-      // 重型额外的负重轮
-      if (b.skirt){
-        for (let i = 0; i < 3; i++){
-          circ(ctx, bx + b.treadW / 2, -treadH * 0.28 + i * treadH * 0.28, b.treadW * 0.17);
-          ctx.fillStyle = 'rgba(170,200,230,.5)'; ctx.fill();
-        }
-      }
     }
 
     // 车体
@@ -3631,9 +3675,6 @@
       [[0, '#9fb4cd'], [0.48, '#4d627b'], [1, '#1b2735']]);
     ctx.fill();
     ctx.strokeStyle = alpha(base, 0.9); ctx.lineWidth = 0.7; ctx.stroke();
-    // 炮塔环
-    circ(ctx, 0, turretY, TR * 0.61);
-    ctx.strokeStyle = alpha(base, 0.42); ctx.lineWidth = 0.5; ctx.stroke();
     // 炮塔小高光（不抢视觉）
     circ(ctx, -TR * 0.3, turretY - TR * 0.32, TR * 0.15);
     ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fill();
@@ -3648,12 +3689,6 @@
     const mw = b.muzzleW, mh = mw * 0.7;
     shape(ctx, -mw / 2, b.muzzleTop, mw, mh, mh * 0.48, '#5a7089', edge, 0.7);
     shape(ctx, -mw * 0.28, b.muzzleTop + mh * 0.22, mw * 0.56, mh * 0.3, mh * 0.15, 'rgba(255,255,255,.3)');
-
-    // 状态灯（卡通高光闪烁）
-    const lamp = 0.55 + 0.45 * Math.sin(now / 240 + (t.x + t.y) * 0.05);
-    circ(ctx, 0, turretY + BH * 0.26, BW * 0.125);
-    ctx.fillStyle = 'rgba(255,255,255,' + lamp.toFixed(2) + ')';
-    ctx.fill();
 
     ctx.restore();
   }
@@ -3685,9 +3720,6 @@
     // 主装甲
     shape(ctx, -8.6, -12.6, 17.2, 25.2, 5.6,
       linGrad(ctx, 0, -12.6, 0, 12.6, [[0, cLight], [0.4, base], [1, cDark]]), edge, 1.2);
-    // 装甲板分割
-    shape(ctx, -7.2, -11.2, 14.4, 8.0, 3.6, 'rgba(255,255,255,.16)');
-    shape(ctx, -7.2, 2.0, 14.4, 8.6, 3.6, 'rgba(2,8,18,.28)');
 
     // 炮塔
     circ(ctx, 0, -0.6, 6.4);
@@ -3699,11 +3731,10 @@
     for (const s of [-1, 1]){
       shape(ctx, s * 3.4 - 1.5, -19.5, 3.0, 14, 1.5,
         linGrad(ctx, s * 3.4 - 1.5, 0, s * 3.4 + 1.5, 0, [[0, cLight], [0.5, base], [1, cDark]]), edge, 0.8);
-      shape(ctx, s * 3.4 - 2.1, -21.2, 4.2, 2.8, 1.4, mix(base, '#ffffff', 0.6), edge, 0.7);
     }
 
     // 能量核心
-    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200);
+    const pulse = 0.5 + 0.5 * Math.sin(__now / 200);
     circ(ctx, 0, 0.4, 6.2 + pulse);
     ctx.fillStyle = alpha(base, .32); ctx.fill();
     ctx.strokeStyle = alpha(base, .85); ctx.lineWidth = 1.1; ctx.stroke();
@@ -3720,34 +3751,32 @@
   // ===== 道具（发光胶囊 + 图标）=====
   const PICKUP_ICON = {
     shield:'🛡', bullet:'🔥', doubleshot:'💥', baseshield:'🏰', freeze:'❄', bomb:'💣',
-    apbullet:'⚡', repair:'🔧', medkit:'💚', speed:'🌀', triple:'🔱', laser:'🔫', score:'💰', life:'❤'
+    apbullet:'⚡', repair:'🔧', medkit:'💚', speed:'🌀', triple:'🔱', laser:'🔫', score:'💰', life:'❤',
+    ammoCrate:'🧰', medic:'🩹', magnet:'🧲', slowField:'🌀', blast:'🧨'
   };
   const PICKUP_COLOR = {
     shield:'#4db8ff', bullet:'#ffa41b', doubleshot:'#ff6bb0', baseshield:'#7dff6b', freeze:'#a9e6ff',
     bomb:'#ff5566', apbullet:'#ffd23f', repair:'#3ee08a', medkit:'#5dff9c', speed:'#7dff9a',
-    triple:'#ff7dd0', laser:'#ff5b5b', score:'#ffd166', life:'#ff7f9c'
+    triple:'#ff7dd0', laser:'#ff5b5b', score:'#ffd166', life:'#ff7f9c',
+    ammoCrate:'#8be9fd', medic:'#ffb86c', magnet:'#bd93f9', slowField:'#50fa7b', blast:'#ff79c6'
   };
   function drawPickup(p){
     const cx = p.x + TILE / 2, cy = p.y + TILE / 2;
     const col = PICKUP_COLOR[p.type] || '#9fd8ff';
-    const t = Date.now() / 380 + (p.x + p.y) * 0.06;
+    const t = __now / 380 + (p.x + p.y) * 0.06;
     const pulse = 0.5 + 0.5 * Math.sin(t);
     const bob = Math.sin(t * 1.15) * 0.85;
 
     // 外光晕
-    circ(ctx, cx, cy + bob, 10.5 + pulse * 1.2);
+    circ(ctx, cx, cy + bob, 9.6);
+    ctx.fillStyle = alpha(col, .16); ctx.fill();
     ctx.strokeStyle = alpha(col, .55); ctx.lineWidth = 1.2; ctx.stroke();
-    ctx.fillStyle = alpha(col, .14);
-    circ(ctx, cx, cy + bob, 9.4 + pulse * 0.8);
-    ctx.fill();
 
     // 胶囊底盘
     shape(ctx, cx - 6.1, cy - 6.1 + bob, 12.2, 12.2, 4.3,
       linGrad(ctx, 0, cy - 6.1 + bob, 0, cy + 6.1 + bob,
         [[0, mix(col, '#ffffff', .45)], [0.45, col], [1, mix(col, '#04070f', .55)]]),
       'rgba(4,10,20,.6)', 1);
-    // 顶部高光
-    shape(ctx, cx - 4.3, cy - 4.6 + bob, 8.6, 3.1, 1.8, 'rgba(255,255,255,.4)');
 
     // 图标
     ctx.font = '700 9px ' + FONT;
@@ -3787,7 +3816,7 @@
       ctx.textBaseline = 'alphabetic';
       if (boss.phase3){
         ctx.font = '800 9px ' + FONT;
-        ctx.fillStyle = 'rgba(255,70,90,' + (0.55 + Math.sin(Date.now() / 150) * 0.35) + ')';
+        ctx.fillStyle = 'rgba(255,70,90,' + (0.55 + Math.sin(__now / 150) * 0.35) + ')';
         ctx.fillText('☠ 最终狂暴', bx + bw / 2, by + bh + 11);
       } else if (boss.phaseTriggered){
         ctx.font = '800 9px ' + FONT;
@@ -3797,7 +3826,7 @@
     }
 
     // 水面（逐帧动画）+ 基地（血量动态色）
-    const wtime = Date.now() / 400;
+    const wtime = __now / 400;
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++){
       const v = map[r][c];
       if (v === 5) drawWaterTile(c * TILE, r * TILE, wtime);
@@ -3864,22 +3893,13 @@
     // 道具
     for (const p of pickups) drawPickup(p);
 
-    // 子弹（发光弹芯 + 拖尾）
+    // 子弹（实心弹芯 + 外圈，省拖尾）
     for (const b of bullets){
       const isP = b.from === 'p';
       const glow = b.ap ? '#ffc93f' : (isP ? '#2ce3a6' : '#ff6a3d');
       const core = b.ap ? '#fff9d6' : (isP ? '#e2fff5' : '#ffe3cc');
       const bx = b.x + b.w / 2, by = b.y + b.h / 2;
-      const ang = Math.atan2(b.vy, b.vx);
-      const tl = b.ap ? 10 : (isP ? 9 : 8);
-      const tx2 = bx - Math.cos(ang) * tl, ty2 = by - Math.sin(ang) * tl;
-      // 拖尾（纯色短棒，不做渐隐）
-      ctx.strokeStyle = alpha(glow, .55);
-      ctx.lineWidth = Math.max(1.2, b.w * 0.8);
-      ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx2, ty2); ctx.stroke();
-      ctx.lineCap = 'butt';
-      // 外圈（实心色，不做光晕）
+      // 外圈
       circ(ctx, bx, by, b.w * 0.92);
       ctx.fillStyle = alpha(glow, .82); ctx.fill();
       // 弹芯
@@ -3891,14 +3911,14 @@
     // 坦克（在草地下方）
     if (player.alive){
       // 玩家地面光标：草丛/地形里也能一眼锁定自己
-      const gp = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+      const gp = 0.5 + 0.5 * Math.sin(__now / 300);
       ctx.beginPath();
       ctx.ellipse(player.x + 8, player.y + 9.5, 9.4 + gp * 0.9, 6.2 + gp * 0.6, 0, 0, TAU);
       ctx.strokeStyle = 'rgba(120,255,205,' + (0.2 + gp * 0.16) + ')';
       ctx.lineWidth = 1.2; ctx.stroke();
       drawTank(player);
       if (shieldCharges > 0){
-        const sp = 0.6 + 0.4 * Math.sin(Date.now() / 260);
+        const sp = 0.6 + 0.4 * Math.sin(__now / 260);
         circ(ctx, player.x + 8, player.y + 8, 10.2);
         ctx.strokeStyle = 'rgba(77,184,255,' + (0.55 + sp * 0.35) + ')';
         ctx.lineWidth = 1.8; ctx.stroke();
@@ -3907,11 +3927,11 @@
       }
       if (p1SlideTimer > 0) shape(ctx, player.x + 0.5, player.y + 0.5, TILE - 1, TILE - 1, 5, 'rgba(120,200,255,.3)');
       if (speedActive) shape(ctx, player.x + 0.5, player.y + 0.5, TILE - 1, TILE - 1, 5, 'rgba(120,255,150,.22)');
-      if (levelDebuffs.includes('vuln') && Math.floor(Date.now() / 150) % 2 === 0)
+      if (levelDebuffs.includes('vuln') && Math.floor(__now / 150) % 2 === 0)
         shape(ctx, player.x + 0.5, player.y + 0.5, TILE - 1, TILE - 1, 5, 'rgba(255,70,80,.28)');
     }
     if (dualMode && player2 && player2.alive){
-      const gp2 = 0.5 + 0.5 * Math.sin(Date.now() / 300 + 1.6);
+      const gp2 = 0.5 + 0.5 * Math.sin(__now / 300 + 1.6);
       ctx.beginPath();
       ctx.ellipse(player2.x + 8, player2.y + 9.5, 9.4 + gp2 * 0.9, 6.2 + gp2 * 0.6, 0, 0, TAU);
       ctx.strokeStyle = 'rgba(140,195,255,' + (0.2 + gp2 * 0.16) + ')';
@@ -3953,7 +3973,7 @@
 
     // 冰冻视觉效果
     if (freezeTimer > 0){
-      const glint = Math.floor(Date.now() / 180) % 2 === 0;
+      const glint = Math.floor(__now / 180) % 2 === 0;
       for (const e of enemies) if (e.alive){
         shape(ctx, e.x + 0.3, e.y + 0.3, TILE - 0.6, TILE - 0.6, 5,
           'rgba(120,215,255,.34)', 'rgba(200,245,255,.55)', 0.7);
@@ -3969,10 +3989,8 @@
     // 草地层（覆盖坦克）
     ctx.drawImage(grassLayer, 0, 0, W, H);
 
-    // 粒子（发光火花 + 冲击波环）
+    // 粒子（圆形火花 + 冲击波环）
     if (particles.length){
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
       for (const p of particles){
         const maxL = p.maxLife || 20;
         const k = Math.max(0, Math.min(1, p.life / maxL));
@@ -3980,8 +3998,8 @@
           const rad = p.r * (1 - k);
           if (rad > 0.4){
             circ(ctx, p.x, p.y, rad);
-            ctx.strokeStyle = alpha(p.color, k * 0.8);
-            ctx.lineWidth = 0.9 + k * 2.6;
+            ctx.strokeStyle = alpha(p.color, k * 0.7);
+            ctx.lineWidth = 0.8 + k * 2.0;
             ctx.stroke();
           }
         } else {
@@ -3990,7 +4008,6 @@
           ctx.fill();
         }
       }
-      ctx.restore();
     }
 
     // 飘字（打击感反馈）
@@ -4096,14 +4113,14 @@
 
     // 低血量警示（圆角脉动边框）
     if (player && player.alive && playerHP <= 1 && !cheatInvincible){
-      const pulse = (Math.sin(Date.now() / 200) + 1) / 2;
+      const pulse = (Math.sin(__now / 200) + 1) / 2;
       shape(ctx, 2.5, 2.5, W - 5, H - 5, 14, null, 'rgba(255,70,80,' + (0.32 + pulse * 0.45) + ')', 4);
       shape(ctx, 7.5, 7.5, W - 15, H - 15, 11, null, 'rgba(255,160,90,' + (0.12 + pulse * 0.24) + ')', 1.6);
     }
 
     // 基地危机警示
     if (base && base.alive && base.hp <= 3 && baseShieldCharges <= 0 && (!base.eshield || base.eshield <= 0)){
-      const pulse = (Math.sin(Date.now() / 260) + 1) / 2;
+      const pulse = (Math.sin(__now / 260) + 1) / 2;
       shape(ctx, 1.5, 1.5, W - 3, H - 3, 16, null, 'rgba(255,170,60,' + (0.24 + pulse * 0.36) + ')', 3);
       const bx = base.c * TILE, by = base.r * TILE;
       circ(ctx, bx + 8, by + 8, 13 + pulse * 3);
@@ -4159,6 +4176,7 @@
   function loop(time){
     const dt = lastTime ? Math.min((time - lastTime) / 16.667, 3) : 1;
     lastTime = time;
+    __now = performance.now();
     if (!map.length) { emptyMap(); spawnPlayer(); enemies=[]; bullets=[]; particles=[]; pickups=[]; }
     update(dt); draw(); requestAnimationFrame(loop);
   }
@@ -4178,6 +4196,7 @@
     bullets=[]; particles=[]; enemies=[]; spawnTimer=0; pickups=[]; boss=null; allies=[];
     shieldCharges=0; bulletUpgraded=permFire; doubleShot=permDouble; baseShieldCharges=permShield; freezeTimer=0; pickupTimer=0;
     apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
+    magnetTimer=0; slowFieldTimer=0; blastCharges=0; ammoBuffTimer=0; allyRegenTimer=0;
     p1SlideTimer=0; p1SlideDir=null; p1SlideSpeed=0; p2SlideTimer=0; p2SlideDir=null; p2SlideSpeed=0;
     comboCount=0; comboTimer=0; comboDisplayTimer=0;
     totalKills=0; maxCombo=0;
@@ -4221,6 +4240,29 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.36-beta', date: '2026-10-23',
+      tags: [['perf', '流畅']],
+      desc: [
+        '重渲染层热点优化：以流畅性为主，砍掉所有「看着漂亮但每帧都画」的开销',
+        '粒子层去掉 globalCompositeOperation=lighter 合成（粒子不再加色发光，但 80 颗封顶后完全察觉不到）',
+        '粒子上限 200 → 80；爆炸粒子数 Boss 46 → 20，普通 22 → 10；冲击波环半径同步缩小',
+        '子弹拖尾删除（每发 beginPath + 2 点 stroke）；坦克状态灯、重型负重轮、炮塔环、Boss 装甲板分割、双炮管高光、拾取顶部高光一并删除',
+        'Date.now() 14 处调用全部换成每帧缓存一次的 __now（性能时间戳，零系统调用）',
+        '实测：1 玩家 0 敌人空闲 180fps，p95 5.8ms；12 敌人战斗 178fps，p95 5.8ms；Boss 终狂 180fps，p95 5.9ms',
+      ],
+    },
+    {
+      ver: 'v1.35-beta', date: '2026-10-21',
+      tags: [['new', '道具'], ['other', '玩法']],
+      desc: [
+        '新增 5 个策略型道具：弹药箱（弹匣直接打满 + 240 tick 回填加速 1.5×）、治疗站（场上友军满血 + 360 tick 持续回血）、强磁（480 tick 内磁吸半径 5 格、速度 ×2）、减速场（360 tick 全屏移动 ×0.6，敌人和 Boss 都吃）、爆破弹（3 发范围伤害，半径 2.5 tile）',
+        '减速场专门补 freeze 控不到 Boss 的坑，爆破弹给标准坦克补群体输出，强磁让复杂地图也能吃到远处的拾取',
+        '治疗站是首个对友军生效的道具 —— 友军终于不用脆到见光死',
+        '新增回归用例 AD-AH：5 个道具各自效果可断言',
+      ],
+      minor: [3],
+    },
     {
       ver: 'v1.34-beta', date: '2026-10-19',
       tags: [['new', '玩法'], ['other', '平衡']],
@@ -4658,6 +4700,7 @@
     enemiesTotal = enemiesForLevel(level);
     shieldCharges=0; bulletUpgraded=permFire; doubleShot=permDouble; baseShieldCharges=permShield; freezeTimer=0;
     apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
+    magnetTimer=0; slowFieldTimer=0; blastCharges=0; ammoBuffTimer=0; allyRegenTimer=0;
     pickupTimer = 0; airdropTimer = 1200;
     rollLevelDebuffs();
     if (level % 5 === 0){
@@ -4967,6 +5010,9 @@
     get bossHp() { return boss && boss.alive ? boss.hp : -1; },
     get bossMaxHp() { return boss && boss.alive ? boss.maxHp : -1; },
     get enemyBulletCount() { return bullets.filter(b => b.from === 'e').length; },
+    get bossSpeed() { return boss ? boss.speed : -1; },
+    get firstEnemySpeed() { return enemies.find(e => e.alive) ? enemies.find(e => e.alive).speed : -1; },
+    get allySpeed() { const a = allies.find(x => x.alive); return a ? a.speed : -1; },
     get bossCanGoAny() { return boss ? ['up','down','left','right'].some(d => bossCanGo(d)) : false; },
     get isRunning() { return running; },
     get playerY() { return player ? player.y : -1; },
@@ -5021,6 +5067,20 @@
     get allyAlive() { return allies.some(a => a.alive); },
     get allyCount() { return allies.filter(a => a.alive).length; },
     get allyCountForLevel() { return allyCountFor(level); },
+    get allyHPs() { return allies.filter(a => a.alive).map(a => ({ hp: a.hp, maxHp: a.maxHp })); },
+    damageFirstAlly(d) {
+      const a = allies.find(x => x.alive);
+      if (!a) return null;
+      a.hp = Math.max(0, a.hp - (d || 1));
+      return { hp: a.hp, maxHp: a.maxHp };
+    },
+    get tankSpecs() {
+      const orig = playerTank;
+      const out = {};
+      for (const k of Object.keys(PLAYER_TANKS)) { playerTank = k; const tt = tankSpec(); out[k] = { key: tt.key, name: tt.name, magazine: tt.magazine, reload: tt.reload, speed: tt.speed, cd: tt.cd, dmg: tt.dmg, pierce: tt.pierce, bulletSpeed: tt.bulletSpeed }; }
+      playerTank = orig;
+      return out;
+    },
     ensureAllyTeam() { ensureAllyTeam(); return allies.length; },
     get allyDistToBase() {
       const a = allies.find(x => x.alive);
@@ -5106,7 +5166,8 @@
       else return false;
       return true;
     },
-    get buffCharges() { return { shield: shieldCharges, baseShield: baseShieldCharges, ap: apCharges, speed: speedCharges, triple: tripleCharges, laser: laserCharges, score: scoreCharges }; },
+    get buffCharges() { return { shield: shieldCharges, baseShield: baseShieldCharges, ap: apCharges, speed: speedCharges, triple: tripleCharges, laser: laserCharges, score: scoreCharges,
+      blast: blastCharges, magnet: magnetTimer, slowField: slowFieldTimer, ammoBuff: ammoBuffTimer, allyRegen: allyRegenTimer }; },
     // 玩家实际移动速度倍率（与 update 中同公式）
     get playerSpeedFactor() {
       return (levelDebuffs.includes('slow') ? 0.6 : 1) * (speedActive ? 1.4 : 1);
@@ -5132,6 +5193,27 @@
       }
       return false;
     },
+    // 测试用：列出所有未被拾取的 pickup
+    get pickupList() {
+      return pickups.filter(p => !p.dead).map(p => ({ type: p.type, x: p.x, y: p.y }));
+    },
+    // 测试用：把指定类型的 pickup 挪到指定坐标（测试中常用"贴到玩家脚下"）
+    placePickup(type, x, y) {
+      const pick = pickups.find(p => !p.dead && p.type === type);
+      if (!pick) return false;
+      pick.x = x; pick.y = y;
+      return true;
+    },
+    // 测试用：列出活着的敌人
+    get aliveEnemies() {
+      return enemies.filter(e => e.alive).map(e => ({ x: e.x, y: e.y, hp: e.hp, kind: e.kind, type: e.type, shield: e.shield || 0 }));
+    },
+    get playerPos() { return player ? { x: player.x, y: player.y, dir: player.dir, speed: player.speed } : null; },
+    setPlayerPos(x, y, dir) { if (player) { player.x = x; player.y = y; if (dir) player.dir = dir; } return !!player; },
+    // 单独暴露 moveTank 给测试（诊断 slowField 等用）
+    moveTankRef: (typeof moveTank === 'function') ? moveTank : null,
+    // 把 IIFE 内部的 player/enemies/moveTank 等引用挂到 __test，便于测试 evaluate 直接拿到
+    refs: { get player() { return player; }, get enemies() { return enemies; }, get pickups() { return pickups; }, get bullets() { return bullets; }, get allies() { return allies; }, get boss() { return boss; }, get moveTank() { return moveTank; } },
     // 困难模式测试钩子
     get hardModeOn() { return hardMode; },
     get difficultyLabel() { return diff().label; },

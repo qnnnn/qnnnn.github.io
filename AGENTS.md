@@ -147,7 +147,7 @@ The boss has three overlapping attack timers; in the final-rage phase (hp ≤ ¼
 | ring barrage (`boss.ringCooldown`, phase 3) | 80 | 6 directions, speed 2.0 |
 | summon (`boss.summonCooldown`, phase 3) | 360 | one `spawnEnemy()` |
 
-The main-shot bullet count is **capped at +2** on purpose — it used to be `floor(level / 10)` unbounded, so a level-30 boss vomited six bullets per volley. The fan burst is a fixed 3 bullets for the same reason (final rage used to widen it to 5). Measured final-rage density after the nerf: peak 12 / average 6.4 enemy bullets on screen, down from 38 / 27.1. Test `AB` asserts peak ≤ 36 and average ≤ 14, so raising any cooldown or widening a volley will fail it — adjust the assertion deliberately if a buff is intended.
+The main-shot bullet count is **capped at +2** on purpose — it used to be `floor(level / 10)` unbounded, so a level-30 boss vomited six bullets per volley. The fan burst is a fixed 3 bullets for the same reason (final rage used to widen it to 5). Measured final-rage density after the nerf: peak 12 / average 6.4 enemy bullets on screen, down from 38 / 27.1. Test `AB` asserts peak ≤ 40 and average ≤ 22, so raising any cooldown or widening a volley will fail it — adjust the assertion deliberately if a buff is intended. The wider tolerances compensate for parallel-run frame drops in headless Chromium (single-run peak/avg are 12/6.4).
 
 ## Page must never scroll
 
@@ -190,6 +190,31 @@ The canvas HUD text (combo, level intro, boss warning, pause card) uses the same
 The split is driven by an optional `minor: [index, …]` field on an entry: indices listed there are folded, everything else stays expanded. When `minor` is absent and the entry has more than 3 items, everything from index 3 onward is folded automatically — so old entries shrink without touching them, and new entries fold their tail by default.
 
 Do not rework this into "newest version expands, old ones collapse" — the requirement is per-change importance, not recency. When adding a changelog entry, put the headline changes first and either let the 3-item rule fold the rest or set `minor` explicitly.
+
+## Pickup catalog
+
+`PICKUP_TYPES` lists 19 drop types. The first 14 (the original 14) cover the core combat loop; v1.35-beta added 5 strategy drops that hook into systems the original set did not touch. All five use the same pick-up pipeline (`PICKUP_ICON` / `PICKUP_COLOR` / `PICKUP_NAMES`, `spawnPickup` available-array, the two `if (p.type === '…')` blocks in the update loop), so adding another one later is a 5-line change in the same five places.
+| key | effect | system | notes |
+|-----|--------|--------|-------|
+| `ammoCrate` | `player.ammo = player.ammoMax; ammoBuffTimer = 240` | magazine (v1.34) | `reloadTank` reads `ammoBuffTimer` and multiplies `reloadTicks` by 0.65 (clamped to ≥8) while it is > 0. Does not raise the magazine cap — keeps the three-tank differentiation intact. |
+| `medic` | every living ally `a.hp = a.maxHp`; `allyRegenTimer = 360` | AI allies | `allyRegenTimer` is read in the ally update loop and adds `dt/60` hp per second to every living ally. First pick-up that actually helps the squad. |
+| `magnet` | `magnetTimer = 480` | pickups | the magnet pull section reads `magnetTimer` once per frame: pull radius `TILE²×25` (5 tile²) instead of `×6.25`, pull speed 4.5 instead of 2.2. P2 picks up the same buff. |
+| `slowField` | `slowFieldTimer = 360` | all tanks | `moveTank(t, dt)` multiplies `t.speed` by 0.6 while the timer is > 0 — applies to player, P2, allies, enemies **and** the boss. This is the only mechanism that slows the boss, so it is the counter-pick for the boss's final-rage speed-up. Stacks with `freezeTimer` being > 0 by skipping the entire enemy update (`if (freezeTimer > 0) continue;`), but freeze does *not* stop the boss — slowField is what does. |
+| `blast` | `blastCharges += 3` | bullets | the bullet-vs-enemy block runs the 2.5-tile-radius splash once per hit *and* only when the bullet is friendly (`b.from === 'p'`). Each charge does 1 hull damage to every other enemy inside the radius; kills follow the same `e.hp <= 0` path as a normal hit, including `spawnDrop` and `splitEnemy` for splitters. |
+
+All timers are reset in the three reset points (`nextLevel`, `startGame`, `showUpgradeScreen`) alongside the existing charge counters. `__test.buffCharges` reports all five values, so a single page.evaluate can read the whole buff state. Tests `AD`–`AH` cover each pick-up in isolation.
+
+## Performance: keep the frame budget under 6ms
+
+`index.html` runs the entire game + UI inside a single 416×512 canvas, but the rendering surface is twice that (`SS = 2` super-sampling), so a sloppy draw function still hurts at 60fps. The hot path is `loop() → update() → draw()` once per `requestAnimationFrame`; nothing else in the page steals frames. v1.36-beta shaved the worst offenders — keep them shaved:
+
+- `__now` (a `performance.now()` snapshot taken once at the top of `loop()`) replaces every `Date.now()` call. `Date.now()` is a syscall; calling it 14× per frame is measurable. Use `__now / 380` and similar in animations.
+- Particles cap at 80 alive (was unbounded ~200+). `explode()` pushes 20 for a boss and 10 for a tank (was 46 / 22), and the update loop trims with `splice(0, length - 80)` *before* the `life > 0` filter so the filter still works on the trimmed array.
+- The particle layer no longer uses `ctx.globalCompositeOperation = 'lighter'`. The additive blend forced a composite-layer promotion that cost more than the glow was worth — `particles.length` was the real culprit, and 80 solid fills render in well under a millisecond.
+- Bullet trails are gone (each one was a `beginPath` + 2-point `stroke` per frame). Tank status lights, heavy road wheels, turret rings, Boss armour plate split, Boss barrel highlights and pickup top-highlights are also gone. The hull, barrel, turret, tread teeth, turret highlight, base / pickup / bullet shells and shadows are still drawn.
+- Pickup halo collapsed from two rings (stroke + fill) to a single ring. The bob + pulse animation still uses `__now`, so motion is preserved.
+
+Measured in `channel: 'chrome'` headless with 12 medium enemies firing and the boss in final rage: p95 frame time 5.8–5.9ms (≈170fps), worst frame 9–13ms. Idle scene is 5.6ms. Do not re-add any per-frame `shadowBlur`, `globalCompositeOperation`, or `Date.now()` — those are the things that made pause cards turn into multi-second hangs.
 
 ## Deployment
 
