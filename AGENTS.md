@@ -55,6 +55,10 @@ Gameplay balance lives in two objects near the top of the script: `DIFFS.normal`
 
 Never hard-code difficulty numbers in gameplay code — read them from `diff()` (`lives`, `maxHP`, `enemySpeedMul`, `enemyBulletSpeed`, `shootBase`/`shootStep`/`shootMul`, `rapidCd`/`normalCd`, `typeShift`, `debuffLevel`/`debuffMul`/`debuffBonus`, `dropRate`, `pickupFactor`, `bossHpMul`, `spawnTimer`/`spawnFloor`). The per-level enemy quota is centralized in `enemiesForLevel(lv)`; boss levels (`lv % 5 === 0`) and endless mode keep their own formulas inside it.
 
+Enemy spawn pacing is deliberately capped: `maxAliveFor(lv)` limits how many enemies may exist at once (3 at level 1, +1 every 2 levels, hard cap 8 / 10 in endless), and the per-tick spawn batch only grows to 2 at level 5 and 3 at level 8. Both were introduced because the enemy count used to be unbounded — spawns doubled from level 3 onward and the backlog of enemies could snowball into an unwinnable base rush. Keep the cap in place when tuning; raise it only together with player damage output.
+
+`gameOver(win, reason)` takes a second argument (`'base'` when the base is destroyed, omit for losing all lives) that the game-over screen renders as the loss reason. Base hits also set `baseWarn` for the full-screen flash/banner.
+
 ## Deployment
 
 GitHub Pages at `qnnnn.github.io` (packaged as a subpath of the `qnnnn/qnnnn.github.io` repo). Push to `main` to deploy — the site serves `index.html` at the repo root.

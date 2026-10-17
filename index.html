@@ -837,6 +837,7 @@
   let enemiesKilledThisLevel = 0;
   let enemiesSpawned = 0, enemiesTotal = 20; // 本关已生成/需生成总数（配额制）
   let dmgFlash = 0;   // 玩家受击红闪计时（帧）
+  let baseWarn = 0;   // 基地受击警告计时（帧）
   let bossWarn = 0;   // Boss 出场警告计时
   let totalKills = 0, maxCombo = 0; // 生涯统计
   let highScore = 0; // 最高分（localStorage 持久化）
@@ -877,6 +878,11 @@
     if (lv % 5 === 0) return 10 + lv + diff().bossBonus;
     if (endlessMode) return 15 + lv * 2;
     return diff().totalBase + (lv - 1) * diff().totalStep;
+  }
+  // 同屏敌军软上限：早期压住"雪崩"，随关卡缓慢放开（原版无上限，敌人会越积越多把基地淹掉）
+  function maxAliveFor(lv){
+    const cap = 3 + Math.floor(lv / 2) + (hardMode ? 1 : 0);
+    return Math.min(cap, endlessMode ? 10 : 8);
   }
   // 主菜单显示最高分（HTML 初始文案由 JS 补上）
   function renderMenuHighScore(){
@@ -1231,7 +1237,7 @@
   }
 
   function makeTank(isPlayer, enemyType) {
-    const spd = isPlayer ? (1.2 + permSpeed * 0.15) : (0.4 + Math.min(level-1, 6) * 0.08) * diff().enemySpeedMul;
+    const spd = isPlayer ? (1.2 + permSpeed * 0.15) : (0.4 + Math.min(level-1, 6) * 0.065) * diff().enemySpeedMul;
     const t = {
       isPlayer,
       x: 0, y: 0, w: TILE, h: TILE,
@@ -1933,11 +1939,15 @@
             if (tr>=0&&tc>=0&&tr<ROWS&&tc<COLS && map[tr][tc]===3){ hc=tc; hr=tr; break; }
           }
           if (hc>=0 && base.alive){
-            if (baseShieldCharges > 0){ baseShieldCharges--; explode(hr*TILE,hc*TILE,'#88ff44'); }
+            if (baseShieldCharges > 0){ baseShieldCharges--; explode(hc*TILE,hr*TILE,'#88ff44'); }
             else {
               base.hp -= 2;
-              if (base.hp <= 0){ base.alive=false; map[hr][hc]=0; mapDirty = true; gameOver(false); }
-              else { explode(hr*TILE,hc*TILE,'#ff6600'); sfx.boom(); }
+              if (base.hp <= 0){ base.alive=false; map[hr][hc]=0; mapDirty = true; gameOver(false, 'base'); }
+              else {
+                explode(hc*TILE,hr*TILE,'#ff6600'); sfx.boom();
+                baseWarn = 75; shake(10, 4);
+                addFloater(base.c*TILE + 4, base.r*TILE - 6, '基地 -2', '#ff8f6b', 11);
+              }
             }
             hit = true;
           }
@@ -2242,8 +2252,13 @@
           if (baseShieldCharges > 0){ baseShieldCharges--; b.dead=true; explode(b.x,b.y,'#88ff44'); continue; }
           if (base.alive){
             base.hp--;
-            if (base.hp <= 0){ base.alive=false; map[r][c]=0; mapDirty = true; explode(b.x,b.y,'#ffd24d'); shake(15,5); gameOver(false); }
-            else { explode(b.x,b.y,'#ffa500'); sfx.hit(); }
+            if (base.hp <= 0){ base.alive=false; map[r][c]=0; mapDirty = true; explode(b.x,b.y,'#ffd24d'); shake(15,5); gameOver(false, 'base'); }
+            else {
+              explode(b.x,b.y,'#ffa500'); sfx.hit();
+              baseWarn = 60; // 全屏红闪 + 横幅提示，避免"基地被偷偷拆掉却不知道"
+              shake(7, 3);
+              addFloater(base.c*TILE + 4, base.r*TILE - 6, '基地 -1', '#ff8f6b', 11);
+            }
           }
           b.dead=true; continue;
         }
@@ -2344,17 +2359,20 @@
     const remain = Math.max(0, enemiesTotal - enemiesKilledThisLevel);
     setText(enemiesProgressEl, ' · 剩余 '+remain);
 
-    // 生成敌人（配额制：按时间节奏持续生成，直到本关配额出完；场上数量无上限）
+    // 生成敌人（配额制：按时间节奏持续生成，直到本关配额出完；同屏数量受 maxAliveFor 约束）
     // 生成与击杀解耦——不是死一个补一个，而是每间隔一段时间稳定生成
-    if (spawnTimer<=0 && enemiesSpawned < enemiesTotal){
+    if (spawnTimer<=0 && enemiesSpawned < enemiesTotal && enemies.length < maxAliveFor(level)){
       // 每轮批量生成：等级越高批越大，避免空场等怪、关卡拖沓（"敌方坦克刷不够"）
-      const batch = level >= 7 ? 3 : level >= 3 ? 2 : 1;
+      // 前 4 关只出 1 个/轮：原来第 3 关就翻倍到 2 个，出怪速度突然翻倍是"第三关劝退"的主因
+      const batch = level >= 8 ? 3 : level >= 5 ? 2 : 1;
       let made = 0;
       for (let i=0;i<batch && enemiesSpawned < enemiesTotal;i++){
+        if (enemies.length >= maxAliveFor(level)) break;
         if (spawnEnemy()) made++;
       }
-      // 生成间隔：随等级略微加快（约 2~4.7 秒）；本轮一个都没生成（出生点被占）则快速重试
-      const D0 = diff(); spawnTimer = made === 0 ? 40 : Math.max(D0.spawnFloor, 190 + ((Math.random()*100)|0) - level*6);
+      // 生成间隔：随等级略微加快（约 3~4.8 秒）；前 5 关额外放缓；本轮一个都没生成（出生点被占/同屏满）则快速重试
+      const D0 = diff(); const warmup = level <= 5 ? 34 : 0;
+      spawnTimer = made === 0 ? 40 : Math.max(D0.spawnFloor, 190 + warmup + ((Math.random()*100)|0) - level*6);
     }
     if (spawnTimer>0) spawnTimer-=dt;
 
@@ -2546,6 +2564,7 @@
     if (freezeTimer > 0) freezeTimer-=dt;
     if (playerInvTimer > 0) playerInvTimer-=dt; // 复活无敌计时
     if (dmgFlash > 0) dmgFlash-=dt;
+    if (baseWarn > 0) baseWarn-=dt;
     if (bossWarn > 0) bossWarn-=dt;
     // 加速移动状态：无按键自动结束
     if (!(keys['w']||keys['s']||keys['a']||keys['d']||keys['ArrowUp']||keys['ArrowDown']||keys['ArrowLeft']||keys['ArrowRight'])) speedActive = false;
@@ -2704,7 +2723,7 @@
     enemiesTotal = enemiesForLevel(level);
     shieldCharges = 0; bulletUpgraded = permFire; doubleShot = permDouble; baseShieldCharges = permShield; freezeTimer = 0; apCharges = 0;
     speedCharges = 0; tripleCharges = 0; laserCharges = 0; scoreCharges = 0; speedActive = false;
-    dmgFlash = 0; bossWarn = 0;
+    dmgFlash = 0; bossWarn = 0; baseWarn = 0;
     p1SlideTimer = 0; p1SlideDir = null; p1SlideSpeed = 0; p2SlideTimer = 0; p2SlideDir = null; p2SlideSpeed = 0;
     comboCount = 0; comboTimer = 0; comboDisplayTimer = 0;
     waveSpawned = false; airdropTimer = 0;
@@ -3442,6 +3461,19 @@
       ctx.fillRect(0, 0, W, H);
     }
 
+    // 基地受击全屏红闪
+    if (baseWarn > 0){
+      const k = Math.min(1, baseWarn / 60);
+      ctx.fillStyle = 'rgba(255,60,40,' + (0.12 + k * 0.16) + ')';
+      ctx.fillRect(0, 0, W, H);
+      shape(ctx, 2, 2, W - 4, H - 4, 15, null, 'rgba(255,90,60,' + (0.35 + 0.45 * k) + ')', 3.5);
+      shape(ctx, W / 2 - 82, 14, 164, 26, 10, 'rgba(70,10,10,.88)', 'rgba(255,120,80,.75)', 1.3);
+      ctx.font = '800 13px ' + FONT;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffd9cf';
+      ctx.fillText('⚠ 基地受击  剩余 ' + Math.max(0, base ? base.hp : 0), W / 2, 32);
+    }
+
     // 低血量警示（圆角脉动边框）
     if (player && player.alive && playerHP <= 1 && !cheatInvincible){
       const pulse = (Math.sin(Date.now() / 200) + 1) / 2;
@@ -3552,6 +3584,18 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.21', date: '2026-10-17',
+      tags: [['fix','平衡'],['new','体验']],
+      desc: [
+        '修复「第三关突然爆炸」：原来每轮批量出怪从第 3 关就翻倍成 2 个，而且同屏敌人没有上限，敌人越积越多直接把基地淹掉',
+        '新增同屏敌军软上限（第 1 关 3 个，每 2 关 +1，最多 8 个），批量出怪推迟到第 5 关（3 个/轮推迟到第 8 关）',
+        '前 5 关放缓：刷怪间隔额外 +34 ticks，敌人移速成长从 0.08/关降到 0.065/关',
+        '结算界面显示失败原因：「基地被摧毁」或「生命耗尽」，不再莫名其妙结束',
+        '基地受击时全屏红闪 + 顶部横幅「基地受击 剩余 N」+ 屏幕震动 + 浮字，回防压力看得见',
+        '修复自杀兵撞基地时爆炸特效画在错误坐标（x/y 取反）的问题',
+      ],
+    },
     {
       ver: 'v1.20', date: '2026-10-17',
       tags: [['new','模式'],['other','玩法']],
@@ -3740,9 +3784,9 @@
   document.getElementById('btnChangelogClose').addEventListener('click', closeChangelog);
   clOverlay.addEventListener('click', e => { if (e.target === clOverlay) closeChangelog(); });
 
-  function gameOver(win){
+  function gameOver(win, reason){
     lastTime = 0; running=false; document.body.classList.remove('running'); bgmStop(); shakeTimer = 0;
-    comboCount=0; comboTimer=0; comboDisplayTimer=0;
+    comboCount=0; comboTimer=0; comboDisplayTimer=0; baseWarn = 0;
     // 最高分
     const newRecord = score > highScore;
     if (newRecord){ highScore = score; try { localStorage.setItem('battlecity_highscore', String(highScore)); } catch(_){} }
@@ -3753,8 +3797,13 @@
     if (dualMode) extra = '<br>P1生命：'+lives+' &nbsp; P2生命：'+p2lives;
     const rec = newRecord ? '<br><b style="color:#6cff6c">★ 新纪录！</b>' : '';
     const hardTip = hardMode ? '<br><span style="color:#ffab4d">难度：困难模式</span>' : '';
+    // 失败原因：让玩家知道是被拆了基地而不是"莫名其妙结束"
+    let why = '';
+    if (!win) why = reason === 'base'
+      ? '<br><span style="color:#ff8f6b">✖ 基地被摧毁</span> <span style="color:#777">— 基地没了就算输，回防比清怪更重要</span>'
+      : '<br><span style="color:#ff8f6b">✖ 生命耗尽</span> <span style="color:#777">— 三条命都用完了</span>';
     ovText.innerHTML = '最终得分：<b style="color:#ffd24d">'+score+'</b>'+rec+
-      '<br><span style="color:#888">最高分 '+highScore+'</span>'+hardTip+'<br>到达'+modeLabel+'：'+level+extra+
+      '<br><span style="color:#888">最高分 '+highScore+'</span>'+hardTip+why+'<br>到达'+modeLabel+'：'+level+extra+
       '<br><span style="color:#888">本局击杀 '+totalKills+' &nbsp; 最高连杀 ×'+maxCombo+'</span>';
     btnRetry.style.display = '';
     document.getElementById('btnResume').style.display = 'none';
@@ -4070,7 +4119,7 @@
     get lives() { return lives; },
     set lives(v) { lives = v; livesEl.textContent = v; },
     get base() { return base ? { hp: base.hp, alive: base.alive, r: base.r, c: base.c, maxHp: base.maxHp } : null; },
-    setBaseHp(v) { if (base) { base.hp = Math.max(0, v); if (base.hp <= 0) { base.alive = false; map[base.r][base.c] = 0; mapDirty = true; gameOver(false); } } },
+    setBaseHp(v) { if (base) { base.hp = Math.max(0, v); if (base.hp <= 0) { base.alive = false; map[base.r][base.c] = 0; mapDirty = true; gameOver(false, 'base'); } } },
     triggerGameOver() { if (running) gameOver(false); },
     triggerPlayerDeath() {
       if (!running || !player || !player.alive) return false;
