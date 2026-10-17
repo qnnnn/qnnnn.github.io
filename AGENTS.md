@@ -1,12 +1,12 @@
 # AGENTS.md — Battle City (坦克大战)
 
-Single-file HTML5 Canvas game (~180KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
+Single-file HTML5 Canvas game (~190KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
 
 ## Commands
 
 | Command | What |
 |---------|------|
-| `npx playwright test` | Run all 34 tests headless |
+| `npx playwright test` | Run all 36 tests headless |
 | `npx playwright test --headed` | Run with browser visible |
 | `npx playwright test -g "test name"` | Run single test by name |
 
@@ -19,7 +19,7 @@ Single-file HTML5 Canvas game (~180KB in `index.html`). No build, no bundler, no
 - Tests load the game via `file://` protocol — no server needed.
 - Config: `playwright.config.mjs` (headless, 800×800 viewport, 30s timeout). If Playwright's bundled Chromium is not installed (e.g. offline, so `npx playwright install` can't run), the config automatically falls back to the system Google Chrome via `channel: 'chrome'`.
 - Test file: `battle-city.spec.mjs` — ESM (`.mjs`) despite `"type": "commonjs"` in `package.json`.
-- All 34 tests are **flat top-level** (no `describe()` blocks).
+- All 36 tests are **flat top-level** (no `describe()` blocks).
 - Tests mix `page.waitForTimeout()` (time-based waits for game state) with explicit Playwright assertions. If a test is flaky, increasing these timeouts is the typical fix — **but not when the flake is a read race.** When a test spawns an entity that can die almost immediately, the "before" baseline (`score`, `killedCount`) must be read inside the *same* `page.evaluate()` as the spawn. A separate round-trip read can land after the death frame, so the assertion overshoots and no amount of extra waiting helps. Tests N and O hit this; see `battle-city.spec.mjs` for the atomic-baseline pattern.
 - Newer tests use the `window.__test` debug API (e.g. `triggerPlayerDeath`, `applyBuff`, `addLevelDebuff`, `hitPlayer`, `setBaseHp`) to set up deterministic game states.
 - `node_modules/` and `test-results/` are gitignored.
@@ -58,6 +58,18 @@ Never hard-code difficulty numbers in gameplay code — read them from `diff()` 
 Enemy spawn pacing is deliberately capped: `maxAliveFor(lv)` limits how many enemies may exist at once (3 at level 1, +1 every 2 levels, hard cap 8 / 10 in endless), and the per-tick spawn batch only grows to 2 at level 5 and 3 at level 8. Both were introduced because the enemy count used to be unbounded — spawns doubled from level 3 onward and the backlog of enemies could snowball into an unwinnable base rush. Keep the cap in place when tuning; raise it only together with player damage output.
 
 `gameOver(win, reason)` takes a second argument (`'base'` when the base is destroyed, omit for losing all lives) that the game-over screen renders as the loss reason. Base hits also set `baseWarn` for the full-screen flash/banner.
+
+## AI allies
+
+`allies` (an array, near the top of the script) holds the AI teammates. `allyCountFor(lv)` decides how many a level gets — none before level 3, then +1 every 3 levels, capped at 3 (4 in hard mode) — and `ensureAllyTeam()` refills the roster at `startGame` / `nextLevel` / `reloadLevel`. Airdrop allies (`spawnAirdrop`) are one-shot and never respawn; standing allies respawn 480 ticks after dying.
+
+Their AI is deliberately two-stage: if an enemy is inside the base guard radius (`guardR = TILE * 7`, widened to `TILE * 10` for `suicide`/`scout`) they move to an intercept point between the base and the threat; otherwise they actively hunt the nearest enemy anywhere on the map. Do not shrink the hunt stage back to the guard radius — the allies exist to take pressure off the player in later levels.
+
+Ally bullets are tagged `from: 'p'` (so they damage enemies, not teammates) but carry `isAlly` so `shoot()` skips the player's `laserCharges` / `tripleCharges` / `apCharges` and uses its own cooldown and speed. Keep that split when touching `shoot()` — before it was fixed, allies silently drained the player's buff charges.
+
+## Level debuffs
+
+`DEBUFF_EFFECTS` holds the pool: `slow`, `blind`, `drain`, `vuln`. Reverse-controls was removed (it made the game feel broken rather than hard) — do not re-add it to the array; `addLevelDebuff()` rejects names that are not in the pool, and test `I` asserts that.
 
 ## Deployment
 

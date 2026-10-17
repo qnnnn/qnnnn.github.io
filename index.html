@@ -192,13 +192,17 @@
     padding: 2.5px 0;
     color: var(--ink-2);
   }
-  .row > span:first-child { color: var(--ink-3); letter-spacing: .04em; }
+  .row > span:first-child { color: var(--ink-3); letter-spacing: .04em; white-space: nowrap; flex: 0 0 auto; }
   .val {
     color: var(--amber);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     text-shadow: 0 0 10px rgba(255,209,102,.28);
+    min-width: 0;
+    text-align: right;
   }
+  /* 血量心形较多（升级加血）时压缩字距，避免把「血量」标签挤成两行 */
+  #hpDisplay { letter-spacing: -1.5px; font-size: 13px; overflow: hidden; white-space: nowrap; }
   .mute-icon {
     cursor: pointer;
     text-align: center;
@@ -824,9 +828,10 @@
     const DIR = { up: {x:0,y:-1}, down:{x:0,y:1}, left:{x:-1,y:0}, right:{x:1,y:0} };
   const DIR_LIST = ['up','down','left','right'];
 
-  let player, player2, enemies, bullets, base, particles, pickups, boss, ally;
+  let player, player2, enemies, bullets, base, particles, pickups, boss;
+  let allies = [];   // AI 队友（数组）：随关卡增加，会主动出击
   let score=0, level=1, lives=3, p2lives=3, running=false, paused=false, spawnTimer=0, pickupTimer=0;
-  let bulletUpgraded=false, doubleShot=false, freezeTimer=0, allyRespawnTimer=0, shakeTimer=0, shakeIntensity=0;
+  let bulletUpgraded=false, doubleShot=false, freezeTimer=0, shakeTimer=0, shakeIntensity=0;
   let permHP=0, permLives=0, permSpeed=0, permFire=false, permDouble=false, permShield=0;
   let playerHP=5, playerMaxHP=5;
   let dualMode=false, upgradePending=false, muted=false, cheatInvincible=false, endlessMode=false, hardMode=false, waveSpawned=false;
@@ -898,7 +903,7 @@
   let comboCount = 0, comboTimer = 0, comboDisplayTimer = 0;
   // 本关惩罚（debuff）：关卡越靠后，随机附加的整关负面效果
   let levelDebuffs = [];            // 当前关生效的 debuff 列表，如 ['slow','blind']
-  const DEBUFF_EFFECTS = ['slow','reverse','blind','drain','vuln'];
+  const DEBUFF_EFFECTS = ['slow','blind','drain','vuln'];
   let blindPhase = 0;               // 致盲明暗相位
   let drainTick = 0;                // 失血计时
   let allyShotsFired = 0;           // 队友开火计数（测试用）
@@ -1280,21 +1285,51 @@
     mapDirty = true;
   }
 
-  function spawnAlly(){
-    for (let r=ROWS-3;r<=ROWS-2;r++) for (let c=20;c<=21;c++) if (r>=0&&c>=0&&r<ROWS&&c<COLS&&map[r][c]===1) map[r][c]=0;
-    ally = makeTank(true);
-    ally.x = 20 * TILE; ally.y = (ROWS-3) * TILE;
-    ally.color = '#44ddff';
-    ally.speed = 0.9;
-    ally.hp = 2;
-    ally.maxHp = 2;
-    ally.isAirdrop = false;
-    ally.patrolIdx = 0;
-    mapDirty = true;
+  // 队友数量：第 3 关起 1 个，之后每 3 关 +1，最多 3 个（困难模式 +1，上限 4）
+  function allyCountFor(lv){
+    if (lv < 3) return 0;
+    const base = 1 + Math.floor((lv - 3) / 3);
+    return hardMode ? Math.min(4, base + 1) : Math.min(3, base);
+  }
+
+  function spawnAlly(idx, opts){
+    const i = idx || 0;
+    const o = opts || {};
+    const c0 = Math.max(1, 20 - i * 2), r0 = ROWS - 3;
+    if (!o.airdrop){
+      for (let r=r0;r<=r0+1;r++) for (let c=c0;c<=c0+1;c++) if (r>=0&&c>=0&&r<ROWS&&c<COLS&&map[r][c]===1) map[r][c]=0;
+      mapDirty = true;
+    }
+    const a = makeTank(true);
+    a.color = '#44ddff';
+    a.speed = o.airdrop ? 0.7 : 0.9;
+    a.hp = 2;
+    a.maxHp = 2;
+    a.isAlly = true;
+    a.allyIdx = i;
+    a.patrolIdx = (i * 3) % 8;   // 相位错开，避免几个队友挤在同一个巡逻点
+    a.respawnTimer = 0;
+    a.isAirdrop = !!o.airdrop;
+    if (o.airdrop){
+      a.x = o.x; a.y = -TILE;
+      a.dropIn = 60;
+      a.targetY = o.y;
+    } else {
+      a.x = c0 * TILE; a.y = r0 * TILE;
+    }
+    allies.push(a);
+    return a;
+  }
+
+  // 按当前关卡补齐队友（存活的非空投队友保留，数量不足则补）
+  function ensureAllyTeam(){
+    const want = allyCountFor(level);
+    allies = allies.filter(a => a.alive && !a.isAirdrop);
+    for (let i = allies.length; i < want; i++) spawnAlly(i);
   }
 
   function spawnAirdrop(){
-    if (ally && ally.alive) return;
+    if (allies.some(a => a.isAirdrop)) return;
     for (let i=0;i<30;i++){
       const c = 4 + ((Math.random()*(COLS-8))|0);
       const r = 4 + ((Math.random()*(ROWS-10))|0);
@@ -1304,16 +1339,7 @@
       let blocked=false;
       for (const e of enemies) if (rectsOverlap({x,y,w:TILE,h:TILE},e)){ blocked=true; break; }
       if (blocked) continue;
-      ally = makeTank(true);
-      ally.x = x; ally.y = -TILE;
-      ally.color = '#44ddff';
-      ally.speed = 0.7;
-      ally.hp = 2;
-      ally.maxHp = 2;
-      ally.isAirdrop = true;
-      ally.dropIn = 60;
-      ally.targetY = y;
-      ally.patrolIdx = 0;
+      spawnAlly(allies.length, { airdrop:true, x, y });
       return;
     }
   }
@@ -1345,7 +1371,7 @@
       levelDebuffRow.style.display = 'none';
       return;
     }
-    const icons = { slow:'🐌减速', reverse:'🔀反向', blind:'🌑致盲', drain:'🩸失血', vuln:'💔易伤' };
+    const icons = { slow:'🐌减速', blind:'🌑致盲', drain:'🩸失血', vuln:'💔易伤' };
     levelDebuffEl.textContent = levelDebuffs.map(d=>icons[d]||d).join(' ');
     levelDebuffRow.style.display = 'flex';
   }
@@ -1507,7 +1533,7 @@
     const box = {x:nx,y:ny,w:t.w,h:t.h};
     if (t.type !== 'suicide' && t!==player && player.alive && rectsOverlap(box,player)) return false;
     if (dualMode && t.type !== 'suicide' && t!==player2 && player2 && player2.alive && rectsOverlap(box,player2)) return false;
-    if (ally && ally.alive && t!==ally && rectsOverlap(box,ally)) return false;
+    for (const a of allies) if (a!==t && a.alive && rectsOverlap(box,a)) return false;
     for (const e of enemies) if (e!==t && e.alive && rectsOverlap(box,e)) return false;
     return true;
   }
@@ -1559,7 +1585,8 @@
 
   function shoot(t) {
     if (t.cooldown > 0) return;
-    const isPlayer = !!t.isPlayer;
+    const isAlly = !!t.isAlly;                        // AI 队友：玩家阵营，但不消耗玩家的强化次数
+    const isPlayer = !!t.isPlayer && !isAlly;
     const rapid = !isPlayer && t.rapid;
     // 次数制：每次射击消耗 1 次对应强化
     const isLaser = isPlayer && laserCharges > 0;   // 激光速射
@@ -1568,15 +1595,15 @@
     if (isLaser) laserCharges--;
     if (isTriple) tripleCharges--;
     if (isAp) apCharges--;
-    t.cooldown = isPlayer ? (isLaser ? 14 : 28) : (rapid ? diff().rapidCd : diff().normalCd);
+    t.cooldown = isPlayer ? (isLaser ? 14 : 28) : isAlly ? 30 : (rapid ? diff().rapidCd : diff().normalCd);
     const d = DIR[t.dir];
-    const speed = isPlayer ? ((bulletUpgraded || isLaser) ? 4.5 : 2.4) : diff().enemyBulletSpeed;
+    const speed = isPlayer ? ((bulletUpgraded || isLaser) ? 4.5 : 2.4) : isAlly ? 3.2 : diff().enemyBulletSpeed;
     const s = isPlayer && (bulletUpgraded || isLaser) ? 5 : 4;
     const perp = d.x ? {x:0,y:-1} : {x:1,y:0};
     const cx = t.x + (t.w - s) / 2, cy = t.y + (t.h - s) / 2;
     const count = isPlayer
       ? (isTriple ? 3 : (doubleShot ? 2 : 1))
-      : (rapid ? 2 : 1);
+      : isAlly ? 1 : (rapid ? 2 : 1);
     for (let i=0;i<count;i++){
       let off = 0, vx = d.x*speed, vy = d.y*speed;
       if (isTriple && count === 3){
@@ -1592,12 +1619,12 @@
         x: cx + d.x * t.w / 2 + perp.x * off,
         y: cy + d.y * t.h / 2 + perp.y * off,
         vx, vy,
-        from: t.isPlayer ? 'p' : 'e',
+        from: (isPlayer || isAlly) ? 'p' : 'e',
         w:s, h:s,
         ap: isAp   // 穿甲标记（打钢墙不消耗）
       });
     }
-    if (t === ally) allyShotsFired++;
+    if (allies.includes(t)) allyShotsFired++;
     sfx.shoot();
   }
 
@@ -1687,18 +1714,14 @@
         p1SlideTimer -= dt;
         if (p1SlideTimer <= 0) { p1SlideTimer = 0; p1SlideDir = null; p1SlideSpeed = 0; }
       } else if (p1HasKey) {
-        // 反向操控惩罚：上下/左右互换
-        const reversed = levelDebuffs.includes('reverse');
-        const upK = reversed ? 's' : 'w', downK = reversed ? 'w' : 's';
-        const leftK = reversed ? 'd' : 'a', rightK = reversed ? 'a' : 'd';
         // 支持斜向：水平+垂直同时移动，对角速度归一化(×0.707)
-        const hMove = keys[leftK] || keys[rightK];
-        const vMove = keys[upK] || keys[downK];
+        const hMove = keys['a'] || keys['d'];
+        const vMove = keys['w'] || keys['s'];
         const mv = dt * spdF * ((hMove && vMove) ? 0.707 : 1);
-        if (keys[leftK]) { player.dir='left'; moveTank(player, mv); }
-        else if (keys[rightK]) { player.dir='right'; moveTank(player, mv); }
-        if (keys[upK]) { player.dir='up'; moveTank(player, mv); }
-        else if (keys[downK]) { player.dir='down'; moveTank(player, mv); }
+        if (keys['a']) { player.dir='left'; moveTank(player, mv); }
+        else if (keys['d']) { player.dir='right'; moveTank(player, mv); }
+        if (keys['w']) { player.dir='up'; moveTank(player, mv); }
+        else if (keys['s']) { player.dir='down'; moveTank(player, mv); }
         if (p1OnIce) { p1SlideDir = player.dir; p1SlideSpeed = player.speed * ICE_SLIDE_SPEED_FACTOR; }
       } else if (p1OnIce && p1SlideDir) {
         p1SlideTimer = ICE_SLIDE_DURATION;
@@ -1722,17 +1745,14 @@
         p2SlideTimer -= dt;
         if (p2SlideTimer <= 0) { p2SlideTimer = 0; p2SlideDir = null; p2SlideSpeed = 0; }
       } else if (p2HasKey) {
-        const reversed = levelDebuffs.includes('reverse');
-        const upK = reversed ? 'ArrowDown' : 'ArrowUp', downK = reversed ? 'ArrowUp' : 'ArrowDown';
-        const leftK = reversed ? 'ArrowRight' : 'ArrowLeft', rightK = reversed ? 'ArrowLeft' : 'ArrowRight';
         // 支持斜向：水平+垂直同时移动，对角速度归一化(×0.707)
-        const hMove2 = keys[leftK] || keys[rightK];
-        const vMove2 = keys[upK] || keys[downK];
+        const hMove2 = keys['ArrowLeft'] || keys['ArrowRight'];
+        const vMove2 = keys['ArrowUp'] || keys['ArrowDown'];
         const mv2 = dt * spdF2 * ((hMove2 && vMove2) ? 0.707 : 1);
-        if (keys[leftK]) { player2.dir='left'; moveTank(player2, mv2); }
-        else if (keys[rightK]) { player2.dir='right'; moveTank(player2, mv2); }
-        if (keys[upK]) { player2.dir='up'; moveTank(player2, mv2); }
-        else if (keys[downK]) { player2.dir='down'; moveTank(player2, mv2); }
+        if (keys['ArrowLeft']) { player2.dir='left'; moveTank(player2, mv2); }
+        else if (keys['ArrowRight']) { player2.dir='right'; moveTank(player2, mv2); }
+        if (keys['ArrowUp']) { player2.dir='up'; moveTank(player2, mv2); }
+        else if (keys['ArrowDown']) { player2.dir='down'; moveTank(player2, mv2); }
         if (p2OnIce) { p2SlideDir = player2.dir; p2SlideSpeed = player2.speed * ICE_SLIDE_SPEED_FACTOR; }
       } else if (p2OnIce && p2SlideDir) {
         p2SlideTimer = ICE_SLIDE_DURATION;
@@ -2122,8 +2142,9 @@
       }
     }
 
-    // AI 队友（基地守卫）：围绕基地环形巡逻，只拦截威胁基地的敌人
-    if (ally && ally.alive && !ally.dropIn) {
+    // AI 队友：基地受威胁时回防拦截，基地安全时主动出击追最近的敌人
+    for (const ally of allies) {
+      if (!ally.alive || ally.dropIn) continue;
       if (ally.cooldown > 0) ally.cooldown-=dt;
       ally.aiTimer-=dt;
       const baseCx = base.c*TILE + TILE/2, baseCy = base.r*TILE + TILE/2;
@@ -2131,6 +2152,7 @@
       const guardR = TILE * 7;
       const urgentR = TILE * 10;
       let target = null, minD2 = Infinity, urgent = false;
+      // 1) 基地威胁优先（自杀兵/侦察兵放宽到 10 格）
       for (const e of enemies) if (e.alive) {
         const dx = e.x+e.w/2-baseCx, dy = e.y+e.h/2-baseCy, d2 = dx*dx+dy*dy;
         const isUrgent = e.type === 'suicide' || e.type === 'scout';
@@ -2141,23 +2163,46 @@
         const dx = boss.x+boss.w/2-baseCx, dy = boss.y+boss.h/2-baseCy, d2 = dx*dx+dy*dy;
         if (d2 <= guardR*guardR && d2 < minD2) { minD2 = d2; target = boss; urgent = false; }
       }
-      if (target && ally.aiTimer <= 0) {
-        // 有威胁：挡在基地与威胁之间，贴基地侧拦截
-        const tdx = target.x - baseCx, tdy = target.y - baseCy;
-        const tdist = Math.sqrt(tdx*tdx + tdy*tdy) || 1;
-        const ix = baseCx + tdx/tdist * TILE * 2.5;   // 距基地 2.5 格拦截点
-        const iy = baseCy + tdy/tdist * TILE * 2.5;
-        const idist = Math.hypot(ix - ally.x, iy - ally.y);
-        if (idist > TILE * 1.2) {
-          ally.dir = dirTowards(ally, {x:ix, y:iy, alive:true});
-        } else if (Math.random() < 0.5) {
-          ally.dir = dirSideways(ally, target);       // 已在拦截位：横移保持压迫
-        } else {
-          ally.dir = dirTowards(ally, target);
+      // 2) 基地安全 → 主动出击：追离自己最近的敌人（不限半径）
+      if (!target) {
+        let bestD2 = Infinity, best = null;
+        for (const e of enemies) if (e.alive) {
+          const dx = e.x - ally.x, dy = e.y - ally.y, d2 = dx*dx + dy*dy;
+          if (d2 < bestD2) { bestD2 = d2; best = e; }
         }
-        ally.aiTimer = 12 + ((Math.random()*14)|0);
+        if (boss && boss.alive) {
+          const dx = boss.x - ally.x, dy = boss.y - ally.y, d2 = dx*dx + dy*dy;
+          if (d2 < bestD2) { bestD2 = d2; best = boss; }
+        }
+        target = best;
+      }
+      if (target && ally.aiTimer <= 0) {
+        if (urgent) {
+          // 急救：挡在基地与威胁之间，贴基地侧拦截
+          const tdx = target.x - baseCx, tdy = target.y - baseCy;
+          const tdist = Math.sqrt(tdx*tdx + tdy*tdy) || 1;
+          const ix = baseCx + tdx/tdist * TILE * 2.5;   // 距基地 2.5 格拦截点
+          const iy = baseCy + tdy/tdist * TILE * 2.5;
+          const idist = Math.hypot(ix - ally.x, iy - ally.y);
+          if (idist > TILE * 1.2) {
+            ally.dir = dirTowards(ally, {x:ix, y:iy, alive:true});
+          } else if (Math.random() < 0.5) {
+            ally.dir = dirSideways(ally, target);       // 已在拦截位：横移保持压迫
+          } else {
+            ally.dir = dirTowards(ally, target);
+          }
+        } else {
+          // 主动出击：远距离直线压上，贴身则侧移保持炮口压迫
+          const tcx = target.x + (target.w || 0)/2, tcy = target.y + (target.h || 0)/2;
+          const acx = ally.x + ally.w/2, acy = ally.y + ally.h/2;
+          const dist = Math.hypot(tcx - acx, tcy - acy);
+          if (dist > TILE * 2.5) ally.dir = dirTowards(ally, {x:tcx - ally.w/2, y:tcy - ally.h/2, alive:true});
+          else if (Math.random() < 0.5) ally.dir = dirSideways(ally, target);
+          else ally.dir = dirTowards(ally, target);
+        }
+        ally.aiTimer = 10 + ((Math.random()*12)|0);
       } else if (!target && ally.aiTimer <= 0) {
-        // 无威胁：环形巡逻（固定 8 个巡逻点绕基地一圈，目标不可行走则跳过）
+        // 无敌人：环形巡逻（固定 8 个巡逻点绕基地一圈，目标不可行走则跳过）
         if (ally.patrolIdx === undefined) ally.patrolIdx = 0;
         const pr = 4; // 巡逻半径 4 格
         for (let tries=0; tries<8; tries++){
@@ -2202,7 +2247,7 @@
           }
         }
       }
-      // 射击：只打威胁基地的目标（概率按 dt 累积，帧率无关）
+      // 射击：有目标且视线通透就压制（概率按 dt 累积，帧率无关）
       if (target && ally.cooldown <= 0) {
         if (ally.fireAcc === undefined) ally.fireAcc = 0;
         ally.fireAcc += (ally.isAirdrop ? 0.4 : 0.7) * dt;
@@ -2215,29 +2260,29 @@
       }
     }
     // 空投降落动画
-    if (ally && ally.dropIn && ally.dropIn > 0) {
-      ally.dropIn-=dt;
-      if (ally.dropIn < 0) ally.dropIn = 0; // 防止 dt 过大导致负数卡死
-      ally.y += (ally.targetY - ally.y + TILE) / 30 * dt;
-      if (ally.dropIn <= 0) {
-        ally.y = ally.targetY;
-        explode(ally.x+8, ally.y-4, '#fff');
+    for (const a of allies) {
+      if (!a.dropIn || a.dropIn <= 0) continue;
+      a.dropIn-=dt;
+      if (a.dropIn < 0) a.dropIn = 0; // 防止 dt 过大导致负数卡死
+      a.y += (a.targetY - a.y + TILE) / 30 * dt;
+      if (a.dropIn <= 0) {
+        a.y = a.targetY;
+        explode(a.x+8, a.y-4, '#fff');
         sfx.boom();
       }
     }
-    // 队友复活（Boss关队友才复活，空投不复活）
-    if (ally && !ally.alive && ally.isAirdrop) {
-      ally = null;
+    // 队友死亡与复活（空投不复活；常驻队友 480 ticks 后原地归队）
+    for (const a of allies) {
+      if (a.alive) continue;
+      if (a.isAirdrop) { a.dead = true; continue; }
+      if (a.respawnTimer > 0) { a.respawnTimer -= dt; continue; }
+      a.alive = true;
+      a.hp = a.maxHp;
+      a.x = Math.max(1, 20 - (a.allyIdx || 0) * 2) * TILE; a.y = (ROWS-3) * TILE;
+      a.patrolIdx = ((a.allyIdx || 0) * 3) % 8;
+      a.fireAcc = 0;
     }
-    if (ally && !ally.alive && !ally.isAirdrop) {
-      if (allyRespawnTimer > 0) allyRespawnTimer-=dt;
-      else if (allyRespawnTimer <= 0) {
-        ally.alive = true;
-        ally.hp = ally.maxHp;
-        ally.x = 20 * TILE; ally.y = (ROWS-3) * TILE;
-        ally.patrolIdx = 0;
-      }
-    }
+    if (allies.some(a => a.dead)) allies = allies.filter(a => !a.dead);
 
     // 子弹
     for (const b of bullets) {
@@ -2294,10 +2339,12 @@
           b.dead=true; break;
         }
       } else {
-        if (ally && ally.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},ally)){
+        let hitAlly = null;
+        for (const a of allies) if (a.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h}, a)) { hitAlly = a; break; }
+        if (hitAlly){
           b.dead=true; explode(b.x,b.y,'#4af'); sfx.hit();
-          ally.hp--;
-          if (ally.hp <= 0) { ally.alive=false; allyRespawnTimer=480; }
+          hitAlly.hp--;
+          if (hitAlly.hp <= 0) { hitAlly.alive=false; hitAlly.respawnTimer=480; explode(hitAlly.x+8, hitAlly.y+8, '#4af'); }
           continue;
         }
         if (player.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},player)){
@@ -2423,7 +2470,7 @@
 
     // 空投AI队友（非Boss关，30秒一次概率触发）
     if (level % 5 !== 0){
-      if (airdropTimer <= 0 && (!ally || !ally.alive)){
+      if (airdropTimer <= 0 && !allies.some(a => a.alive && a.isAirdrop)){
         if (Math.random() < 0.25){ spawnAirdrop(); }
         airdropTimer = 1200 + ((Math.random()*600)|0);
       }
@@ -2717,7 +2764,7 @@
   }
 
   function nextLevel(){
-    enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0; hitStopTimer = 0;
+    enemies = []; bullets = []; pickups = []; boss = null; allies = []; hitStopTimer = 0;
     enemiesKilledThisLevel = 0;
     enemiesSpawned = 0; // 配额制：本关已生成数清零
     enemiesTotal = enemiesForLevel(level);
@@ -2726,13 +2773,13 @@
     dmgFlash = 0; bossWarn = 0; baseWarn = 0;
     p1SlideTimer = 0; p1SlideDir = null; p1SlideSpeed = 0; p2SlideTimer = 0; p2SlideDir = null; p2SlideSpeed = 0;
     comboCount = 0; comboTimer = 0; comboDisplayTimer = 0;
-    waveSpawned = false; airdropTimer = 0;
+    waveSpawned = false; airdropTimer = 1200;
     levelIntroTimer = 90; // 1.5秒关卡过场
     rollLevelDebuffs(); // 越靠后关卡越容易吃到随机惩罚
     sfx.intro();
     if (level % 5 === 0){
       generateBossArena();
-      spawnPlayer(false); spawnAlly();
+      spawnPlayer(false);
       spawnBoss();
       sfx.boss();
     } else {
@@ -2742,6 +2789,7 @@
       const count = Math.min(2 + Math.floor(level / 2) + (hardMode ? 1 : 0), hardMode ? 7 : 6);
       for (let i=0;i<count;i++) spawnEnemy();
     }
+    ensureAllyTeam();   // 队友随关卡增加（第 3 关起 1 个，之后每 3 关 +1）
     // 开局生成后开始计时下一次生成
     spawnTimer = endlessMode ? 150 : diff().spawnTimer;
   }
@@ -3315,7 +3363,7 @@
       drawTank(player2);
       if (p2SlideTimer > 0) shape(ctx, player2.x + 0.5, player2.y + 0.5, TILE - 1, TILE - 1, 5, 'rgba(120,200,255,.3)');
     }
-    if (ally && ally.alive){
+    for (const ally of allies) if (ally.alive){
       if (ally.dropIn && ally.dropIn > 0){
         const ax = ally.x + 8, top = ally.y - 20;
         // 降落伞（圆顶 + 吊索）
@@ -3550,19 +3598,20 @@
     enemiesKilledThisLevel=0;
     enemiesSpawned=0;
     enemiesTotal = enemiesForLevel(level);
-    bullets=[]; particles=[]; enemies=[]; spawnTimer=0; pickups=[]; boss=null; ally=null; allyRespawnTimer=0;
+    bullets=[]; particles=[]; enemies=[]; spawnTimer=0; pickups=[]; boss=null; allies=[];
     shieldCharges=0; bulletUpgraded=permFire; doubleShot=permDouble; baseShieldCharges=permShield; freezeTimer=0; pickupTimer=0;
     apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
     p1SlideTimer=0; p1SlideDir=null; p1SlideSpeed=0; p2SlideTimer=0; p2SlideDir=null; p2SlideSpeed=0;
     comboCount=0; comboTimer=0; comboDisplayTimer=0;
     totalKills=0; maxCombo=0;
     permHP=0; permLives=0; permSpeed=0; permFire=false; permDouble=false; permShield=0; upgradePending=false;
-    playerHP=D.maxHP; playerMaxHP=D.maxHP; waveSpawned=false; airdropTimer=0;
+    playerHP=D.maxHP; playerMaxHP=D.maxHP; waveSpawned=false; airdropTimer=1200;
     document.getElementById('levelLabel').textContent = endlessMode ? '波次' : '关卡';
     document.getElementById('diffRow').style.display = hardMode ? 'flex' : 'none';
     emptyMap(); spawnPlayer();
     // 开局先出一批
     if (!endlessMode) { const count = Math.min(2 + Math.floor(level / 2) + (hardMode ? 1 : 0), hardMode ? 7 : 6); for (let i=0;i<count;i++) spawnEnemy(); }
+    ensureAllyTeam();
     spawnTimer = endlessMode ? 150 : diff().spawnTimer; // 开局生成后开始计时下一次
     levelIntroTimer = 90; // 开局过场
     rollLevelDebuffs();
@@ -3584,6 +3633,18 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.22', date: '2026-10-18',
+      tags: [['new','队友'],['fix','修复']],
+      desc: [
+        'AI 队友随关卡增加：第 3 关 1 个、第 6 关 2 个、第 9 关 3 个（困难模式 +1），后期火力不再只靠玩家一个人',
+        '队友改为「主动出击」：基地安全时主动追最近的敌人打，只有基地真被威胁时才回防守家',
+        '移除「方向反转」关卡惩罚（上下左右互换），只剩减速/致盲/失血/易伤',
+        '修复队友开火会偷偷消耗玩家的激光/三连发/穿甲弹次数，队友现在用独立的弹药参数',
+        '修复开局瞬间就可能空投队友（首次空投改为 20 秒后判定），血量心形变多时「血量」二字不再被挤成两行',
+        '新增 2 个回归用例：队友数量随关卡增长、队友会离开基地追击远处敌人',
+      ],
+    },
     {
       ver: 'v1.21', date: '2026-10-17',
       tags: [['fix','平衡'],['new','体验']],
@@ -3841,17 +3902,17 @@
   function reloadLevel(){
     lastTime = 0; clearTimeout(respawnTimer); clearTimeout(p2respawnTimer); shakeTimer = 0; hitStopTimer = 0;
     running = true;
-    enemies = []; bullets = []; pickups = []; boss = null; ally = null; allyRespawnTimer = 0;
+    enemies = []; bullets = []; pickups = []; boss = null; allies = [];
     enemiesKilledThisLevel = 0;
     enemiesSpawned = 0;
     enemiesTotal = enemiesForLevel(level);
     shieldCharges=0; bulletUpgraded=permFire; doubleShot=permDouble; baseShieldCharges=permShield; freezeTimer=0;
     apCharges=0; speedCharges=0; tripleCharges=0; laserCharges=0; scoreCharges=0; speedActive=false;
-    pickupTimer = 0; airdropTimer = 0;
+    pickupTimer = 0; airdropTimer = 1200;
     rollLevelDebuffs();
     if (level % 5 === 0){
       generateBossArena();
-      spawnPlayer(); spawnAlly();
+      spawnPlayer();
       spawnBoss();
       sfx.boss();
     } else {
@@ -3860,6 +3921,7 @@
       const count = Math.min(2 + Math.floor(level / 2) + (hardMode ? 1 : 0), hardMode ? 7 : 6);
       for (let i=0;i<count;i++) spawnEnemy();
     }
+    ensureAllyTeam();
     spawnTimer = endlessMode ? 150 : diff().spawnTimer; // 开局生成后开始计时下一次
     overlay.classList.add('hidden');
     document.getElementById('upgradeOverlay').classList.add('hidden');
@@ -4146,15 +4208,32 @@
     playerInvincibleOn() { cheatInvincible = true; document.getElementById('cheatRow').style.display = 'flex'; },
     playerInvincibleOff() { cheatInvincible = false; document.getElementById('cheatRow').style.display = 'none'; },
     get lives() { return lives; },
+    get level() { return level; },
+    get baseHp() { return base ? base.hp : -1; },
     setLevel(lv) { level = lv; levelEl.textContent = lv; rollLevelDebuffs(); },
     clearEnemies() { enemies = []; },
     // 基地守卫验证钩子
-    get allyAlive() { return ally !== null && ally.alive; },
+    get allyAlive() { return allies.some(a => a.alive); },
+    get allyCount() { return allies.filter(a => a.alive).length; },
+    get allyCountForLevel() { return allyCountFor(level); },
+    ensureAllyTeam() { ensureAllyTeam(); return allies.length; },
     get allyDistToBase() {
-      if (!ally || !ally.alive || !base) return null;
+      const a = allies.find(x => x.alive);
+      if (!a || !base) return null;
       const bcx = base.c*TILE + TILE/2, bcy = base.r*TILE + TILE/2;
-      return Math.hypot(ally.x + 8 - bcx, ally.y + 8 - bcy);
+      return Math.hypot(a.x + 8 - bcx, a.y + 8 - bcy);
     },
+    // 队友离最近敌人的距离（验证"主动出击"会离开基地去追人）
+    get allyDistToNearestEnemy() {
+      const a = allies.find(x => x.alive);
+      if (!a || !enemies.length) return null;
+      let best = Infinity;
+      for (const e of enemies) if (e.alive) {
+        best = Math.min(best, Math.hypot(e.x - a.x, e.y - a.y));
+      }
+      return best === Infinity ? null : best;
+    },
+    get allyPositions() { return allies.filter(a => a.alive).map(a => ({x:a.x, y:a.y})); },
     baseWallCount() {
       if (!base) return -1;
       let n = 0;
@@ -4172,7 +4251,8 @@
       return true;
     },
     allyThreatInfo() {
-      if (!ally || !ally.alive) return null;
+      const ally = allies.find(a => a.alive);
+      if (!ally) return null;
       // 重算威胁（与 AI 同逻辑）
       const bcx = base.c*TILE + TILE/2, bcy = base.r*TILE + TILE/2;
       const guardR = TILE * 7, urgentR = TILE * 10;

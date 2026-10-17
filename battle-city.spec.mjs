@@ -247,23 +247,18 @@ test('H: level debuff (slow) applies whole level and panel shows it', async ({ p
   expect(list).toContain('slow');
 });
 
-test('I: level debuff (reverse) inverts controls', async ({ page }) => {
+test('I: reverse debuff was removed from the pool', async ({ page }) => {
   await page.click('#btn1p');
   await page.waitForTimeout(500);
-  await page.evaluate(() => window.__test.addLevelDebuff('reverse'));
-  await expect(page.locator('#levelDebuffEl')).toHaveText(/反向/);
-  // 反向时按 w 应向下移动（y 增大），按 s 应向上（y 减小）
-  const yBefore = await page.evaluate(() => window.__test.playerY);
-  await page.keyboard.down('w');
-  await page.waitForTimeout(300);
-  await page.keyboard.up('w');
-  const yAfterW = await page.evaluate(() => window.__test.playerY);
-  expect(yAfterW).toBeGreaterThan(yBefore);
-  await page.keyboard.down('s');
-  await page.waitForTimeout(300);
-  await page.keyboard.up('s');
-  const yAfterS = await page.evaluate(() => window.__test.playerY);
-  expect(yAfterS).toBeLessThan(yAfterW);
+  // 「方向反转」惩罚已下线：注入无效、面板不显示
+  const applied = await page.evaluate(() => window.__test.addLevelDebuff('reverse'));
+  expect(applied).toBe(false);
+  const list = await page.evaluate(() => window.__test.levelDebuffs);
+  expect(list).not.toContain('reverse');
+  await expect(page.locator('#levelDebuffRow')).toBeHidden();
+  // 其余惩罚依然生效
+  await page.evaluate(() => window.__test.addLevelDebuff('slow'));
+  await expect(page.locator('#levelDebuffEl')).toHaveText(/减速/);
 });
 
 test('J: level debuff (drain) reduces HP over time but never kills', async ({ page }) => {
@@ -432,3 +427,53 @@ test('Q: leaving hard mode restores normal difficulty values', async ({ page }) 
   expect(n.speed).toBeCloseTo(0.4, 3);
 });
 
+test('R: ally team size grows with the level', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(500);
+  // 第 1 关没有队友
+  const lv1 = await page.evaluate(() => ({
+    want: window.__test.allyCountForLevel,
+    got: window.__test.allyCount,
+  }));
+  expect(lv1.want).toBe(0);
+  expect(lv1.got).toBe(0);
+  // 第 3 关起 1 个，第 9 关起 3 个（每 3 关 +1）
+  const lv3 = await page.evaluate(() => {
+    window.__test.setLevel(3);
+    window.__test.ensureAllyTeam();
+    return { want: window.__test.allyCountForLevel, got: window.__test.allyCount };
+  });
+  expect(lv3.want).toBe(1);
+  expect(lv3.got).toBe(1);
+  const lv9 = await page.evaluate(() => {
+    window.__test.setLevel(9);
+    window.__test.ensureAllyTeam();
+    return { want: window.__test.allyCountForLevel, got: window.__test.allyCount };
+  });
+  expect(lv9.want).toBe(3);
+  expect(lv9.got).toBe(3);
+  // 队友分散在不同位置，不会叠在一起
+  const positions = await page.evaluate(() => window.__test.allyPositions);
+  const unique = new Set(positions.map(p => p.x + ',' + p.y));
+  expect(unique.size).toBe(positions.length);
+});
+
+test('S: ally chases an enemy far outside the base guard radius', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    window.__test.setLevel(3);
+    window.__test.ensureAllyTeam();
+    window.__test.clearEnemies();
+    // 敌人放在地图上半部，远离基地（超出 7 格守卫半径）
+    window.__test.addEnemy(window.__test.makeEnemyAt('normal', 6, 3));
+  });
+  await page.waitForTimeout(250);
+  const before = await page.evaluate(() => window.__test.allyDistToBase);
+  const threat = await page.evaluate(() => window.__test.allyThreatInfo());
+  expect(threat.hasThreat).toBe(false);   // 敌人不在守卫半径内
+  await page.waitForTimeout(4000);
+  const after = await page.evaluate(() => window.__test.allyDistToBase);
+  // 主动出击：离开基地附近，向敌人方向推进
+  expect(after).toBeGreaterThan(before + 16);
+});
