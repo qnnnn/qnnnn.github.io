@@ -340,18 +340,22 @@ test('M: score buff doubles score gains per charge (stacks)', async ({ page }) =
 test('N: suicide tank destroys brick wall, no score, counts level progress', async ({ page }) => {
   await page.click('#btn1p');
   await page.waitForTimeout(500);
-  await page.evaluate(() => {
+  // 与 O 同理：基线必须和生成动作放在同一个 evaluate 里读取，
+  // 否则可能与游戏循环竞争（自爆坦克撞墙后 killedCount 会自增）。
+  const baseline = await page.evaluate(() => {
     window.__test.clearEnemies();
+    const scoreBefore = window.__test.score;
+    const killedBefore = window.__test.killedCount;
     const e = window.__test.makeEnemyAt('suicide', 2, 4);
     e.dir = 'right';
     e.aiDir = 'right';
     e.aiTimer = 99999;
     e.movePersist = 99999;
     window.__test.addEnemy(e);
+    return { scoreBefore, killedBefore };
   });
+  const { scoreBefore, killedBefore } = baseline;
   expect(await page.evaluate(() => window.__test.getTile(4, 3))).toBe(1);
-  const scoreBefore = await page.evaluate(() => window.__test.score);
-  const killedBefore = await page.evaluate(() => window.__test.killedCount);
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => window.__test.getTile(4, 3))).toBe(0);
   expect(await page.evaluate(() => window.__test.enemiesCount)).toBe(0);
@@ -362,14 +366,19 @@ test('N: suicide tank destroys brick wall, no score, counts level progress', asy
 test('O: scout self-alert death gives no score but counts level progress', async ({ page }) => {
   await page.click('#btn1p');
   await page.waitForTimeout(500);
-  await page.evaluate(() => {
+  // 该侦察兵出生点就在基地 5 格报警半径内，下一帧即自爆。
+  // 基线必须与生成动作在同一个 evaluate 内读取，否则会与游戏循环竞争，
+  // 有时读到的是已经自爆后的计数，导致 killedBefore+1 断言偶发失败。
+  const baseline = await page.evaluate(() => {
     window.__test.clearEnemies();
+    const scoreBefore = window.__test.score;
+    const killedBefore = window.__test.killedCount;
     const e = window.__test.makeEnemyAt('scout', 13, 26);
     e.dir = 'up';
     window.__test.addEnemy(e);
+    return { scoreBefore, killedBefore };
   });
-  const scoreBefore = await page.evaluate(() => window.__test.score);
-  const killedBefore = await page.evaluate(() => window.__test.killedCount);
+  const { scoreBefore, killedBefore } = baseline;
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => window.__test.score)).toBe(scoreBefore);
   expect(await page.evaluate(() => window.__test.killedCount)).toBe(killedBefore + 1);
