@@ -1,12 +1,12 @@
 # AGENTS.md — Battle City (坦克大战)
 
-Single-file HTML5 Canvas game (~200KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
+Single-file HTML5 Canvas game (~228KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
 
 ## Commands
 
 | Command | What |
 |---------|------|
-| `npx playwright test` | Run all 43 tests headless |
+| `npx playwright test` | Run all 44 tests headless |
 | `npx playwright test --headed` | Run with browser visible |
 | `npx playwright test -g "test name"` | Run single test by name |
 
@@ -19,7 +19,7 @@ Single-file HTML5 Canvas game (~200KB in `index.html`). No build, no bundler, no
 - Tests load the game via `file://` protocol — no server needed.
 - Config: `playwright.config.mjs` (headless, 800×800 viewport, 30s timeout). If Playwright's bundled Chromium is not installed (e.g. offline, so `npx playwright install` can't run), the config automatically falls back to the system Google Chrome via `channel: 'chrome'`.
 - Test file: `battle-city.spec.mjs` — ESM (`.mjs`) despite `"type": "commonjs"` in `package.json`.
-- All 43 tests are **flat top-level** (no `describe()` blocks).
+- All 44 tests are **flat top-level** (no `describe()` blocks).
 - Tests mix `page.waitForTimeout()` (time-based waits for game state) with explicit Playwright assertions. If a test is flaky, increasing these timeouts is the typical fix — **but not when the flake is a read race.** When a test spawns an entity that can die almost immediately, the "before" baseline (`score`, `killedCount`) must be read inside the *same* `page.evaluate()` as the spawn. A separate round-trip read can land after the death frame, so the assertion overshoots and no amount of extra waiting helps. Tests N and O hit this; see `battle-city.spec.mjs` for the atomic-baseline pattern.
 - Newer tests use the `window.__test` debug API (e.g. `triggerPlayerDeath`, `applyBuff`, `addLevelDebuff`, `hitPlayer`, `setBaseHp`) to set up deterministic game states.
 - `node_modules/` and `test-results/` are gitignored.
@@ -105,6 +105,16 @@ Two things make the behaviour visible rather than theoretical:
 - Firing no longer requires seeing the player. `aimBase` (goal is the base, `canSeeBase`, within 14 tiles) both boosts the fire chance (`×1.8`) and satisfies the "may shoot" gate — before this, enemies that reached the base just stood next to it, because the fire check was `canSeePlayer` only. Enemies also turn to fire at the base whenever they share a row/column with it and have line of sight.
 
 Suicide tanks now charge the base half the time regardless of the player. Test `Z` asserts the weight curve, the goal distribution (more than 28% base) and that enemies parked next to the base actually chip its hp — keep those three properties when touching enemy AI.
+
+## Base defenses
+
+The base is not a passive target. Three layers stack in this order (`hurtBase()` mirrors it exactly):
+
+1. `baseShieldCharges` — the pick-up/upgrade "基地加固" charges, `BASE_SHIELD_MAX` of them. Spend these first so collected pick-ups never become dead weight.
+2. `base.eshield` — two regenerating energy layers. A hit sets `base.eshieldTimer = 480`; after that the base refills one layer every 180 ticks while untouched. Do not let the recharge run during `levelIntroTimer`.
+3. `base.hp` — now `8` (it used to be `5`, which could not survive the base rush). Bullets take 1, suicide tanks take 2.
+
+`base` also carries a turret: `updateBase(dt)` scans for the nearest enemy (or boss) within `BASE_TURRET_RANGE` (7 tiles) and fires every 110 ticks for `dmg: 1, pierce: 1`. Turret bullets are pushed with `from: 'p'` and `ghost: true` — friendly fire through the base tile is skipped in the bullet loop (`if (v===3 && b.from !== 'e') continue;`) and `ghost` keeps brick walls from being eaten from the inside. `baseTurretEnabled` / `__test.stripBaseDefense()` exist so test `Z` can measure enemy aggression without the base shooting back; test `AA` covers the hurt order and that the turret actually damages an adjacent enemy.
 
 ## AI allies
 

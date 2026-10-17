@@ -686,18 +686,55 @@ test('Z: enemies actively press the base', async ({ page }) => {
   expect(tally.total).toBeGreaterThan(40);
   expect(tally.base / tally.total).toBeGreaterThan(0.28);
 
-  // 摆到基地边上就应该真的把基地打掉血
+  // 摆到基地边上就应该真的把基地打掉血（先剥掉基地自身的护盾与炮塔，单独验证进攻性）
   await page.evaluate(() => {
     const t = window.__test;
+    t.stripBaseDefense();
     t.clearEnemiesNow();
     t.spawnEnemyOfKind('medium', 176, 400);
     t.spawnEnemyOfKind('medium', 240, 400);
   });
-  await page.waitForTimeout(12000);
+  await page.waitForTimeout(14000);
   const after = await page.evaluate(() => ({
     hp: window.__test.baseHp,
     goals: window.__test.enemyGoals().map(g => g.goal),
   }));
-  expect(after.hp).toBeLessThan(5);
+  expect(after.hp).toBeLessThan(8);   // 基地满血 8，被打到掉血即证明敌人真的在打它
   expect(after.goals).toContain('base');
+});
+test('AA: the base defends itself with hp, an energy shield and a turret', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(2400);
+
+  const stats = await page.evaluate(() => ({
+    maxHp: window.__test.base.maxHp,
+    eshield: window.__test.baseEshield,
+    itemShield: window.__test.buffCharges.baseShield,
+  }));
+  expect(stats.maxHp).toBe(8);
+  expect(stats.eshield).toBe(2);
+  expect(stats.itemShield).toBe(0);
+
+  // 伤害消耗顺序：能量护盾 → 血量；护盾吃光之前血量不动
+  const h1 = await page.evaluate(() => window.__test.hurtBase(1));
+  expect(h1).toEqual({ eshield: 1, hp: 8, item: false });
+  const h2 = await page.evaluate(() => window.__test.hurtBase(1));
+  expect(h2).toEqual({ eshield: 0, hp: 8, item: false });
+  const h3 = await page.evaluate(() => window.__test.hurtBase(1));
+  expect(h3).toEqual({ eshield: 0, hp: 7, item: false });
+
+  // 自动炮塔：基地 5 格外摆一个敌人，几秒内必须掉血（或被打死）
+  const probe = await page.evaluate(async () => {
+    const t = window.__test;
+    t.clearEnemiesNow();
+    const b = t.base;
+    const bx = b.c * 16 + 8, by = b.r * 16 + 8;
+    t.spawnEnemyOfKind('heavy', bx - 56, by - 44, { tag: 'turretprobe' });
+    const before = t.enemyState('turretprobe').hp;
+    await new Promise(r => setTimeout(r, 4000));
+    const now = t.enemyState('turretprobe');
+    return { before, after: now ? now.hp : 0 };
+  });
+  expect(probe.before).toBe(8);
+  expect(probe.after).toBeLessThan(probe.before);
 });

@@ -249,6 +249,7 @@
   }
   /* 血量心形较多（升级加血）时压缩字距，避免把「血量」标签挤成两行 */
   #hpDisplay { letter-spacing: -1.5px; font-size: 13px; overflow: hidden; white-space: nowrap; }
+  #bufBase { letter-spacing: -0.6px; font-size: 12.5px; overflow: hidden; white-space: nowrap; }
   .mute-icon {
     cursor: pointer;
     text-align: center;
@@ -1365,7 +1366,9 @@
     for (let r=br-2;r<=br;r++) for (let c=bc-2;c<=bc+2;c++){
       if (r>=0&&c>=0&&r<ROWS&&c<COLS && map[r][c]===0 && !(r===br && c===bc)) map[r][c]=1;
     }
-    base = { r: br, c: bc, alive: true, hp: 5, maxHp: 5 };
+    base = { r: br, c: bc, alive: true, hp: 8, maxHp: 8,
+      eshield: 2, eshieldMax: 2, eshieldTimer: 0,
+      turretCd: 100, turretAngle: -Math.PI / 2, turretFlash: 0 };
     mapDirty = true;
   }
 
@@ -1397,7 +1400,9 @@
     for (let r=br-2;r<=br;r++) for (let c=bc-2;c<=bc+2;c++) {
       if (r>=0&&c>=0&&r<ROWS&&c<COLS && map[r][c]===0 && !(r===br && c===bc)) map[r][c]=1;
     }
-    base = { r: br, c: bc, alive: true, hp: 5, maxHp: 5 };
+    base = { r: br, c: bc, alive: true, hp: 8, maxHp: 8,
+      eshield: 2, eshieldMax: 2, eshieldTimer: 0,
+      turretCd: 100, turretAngle: -Math.PI / 2, turretFlash: 0 };
     mapDirty = true;
   }
 
@@ -1966,10 +1971,55 @@
     baseShieldCharges = Math.min(BASE_SHIELD_MAX, baseShieldCharges + n);
   }
 
+  let baseTurretEnabled = true;
+  const BASE_ESH_MAX = 2;
+  const BASE_TURRET_RANGE = TILE * 7;
+
+  // 基地能量护盾回充 + 自动炮塔（基地不再只是被动挨打）
+  function updateBase(dt){
+    if (!base || !base.alive || levelIntroTimer > 0) return;
+    // 护盾回充：停火 8 秒后每 3 秒补一层
+    if (base.eshield < base.eshieldMax){
+      base.eshieldTimer -= dt;
+      if (base.eshieldTimer <= 0){
+        base.eshield++;
+        base.eshieldTimer = base.eshield < base.eshieldMax ? 180 : 1e9;
+        addFloater(base.c * TILE + 4, base.r * TILE - 8, '护盾充能', '#69e6ff', 9);
+      }
+    }
+    if (base.turretFlash > 0) base.turretFlash -= dt;
+    if (!baseTurretEnabled) return;
+    base.turretCd -= dt;
+    if (base.turretCd > 0) return;
+    const cx = base.c * TILE + TILE / 2, cy = base.r * TILE + TILE / 2;
+    let best = null, bd = BASE_TURRET_RANGE;
+    for (const e of enemies) if (e.alive){
+      const d = Math.hypot(e.x + e.w / 2 - cx, e.y + e.h / 2 - cy);
+      if (d < bd){ bd = d; best = e; }
+    }
+    if (boss && boss.alive){
+      const d = Math.hypot(boss.x + boss.w / 2 - cx, boss.y + boss.h / 2 - cy);
+      if (d < bd){ bd = d; best = boss; }
+    }
+    if (!best){ base.turretCd = 18; return; }
+    const ang = Math.atan2(best.y + best.h / 2 - cy, best.x + best.w / 2 - cx);
+    base.turretAngle = ang;
+    base.turretCd = 110;
+    base.turretFlash = 10;
+    bullets.push({
+      x: cx - 1.8, y: cy - 1.8,
+      vx: Math.cos(ang) * 4.0, vy: Math.sin(ang) * 4.0,
+      from: 'p', w: 3.6, h: 3.6,
+      dmg: 1, pierce: 1, ghost: true,   // ghost：不打自家护墙
+    });
+    sfx.shoot();
+  }
+
   function update(dt) {
     if (paused || !running) return;
     if (hitStopTimer > 0) { hitStopTimer -= dt; }
     if (levelIntroTimer > 0) levelIntroTimer -= dt;
+    updateBase(dt);
 
     if (player.alive) {
       const p1OnIce = tileAt(player.x+8, player.y+8) === 6;
@@ -2263,6 +2313,11 @@
           }
           if (hc>=0 && base.alive){
             if (baseShieldCharges > 0){ baseShieldCharges--; explode(hc*TILE,hr*TILE,'#88ff44'); }
+            else if (base.eshield > 0){
+              base.eshield--; base.eshieldTimer = 480;
+              explode(hc*TILE,hr*TILE,'#69e6ff'); sfx.hit();
+              addFloater(base.c*TILE + 4, base.r*TILE - 6, '护盾 -1', '#69e6ff', 11);
+            }
             else {
               base.hp -= 2;
               if (base.hp <= 0){ base.alive=false; map[hr][hc]=0; mapDirty = true; gameOver(false, 'base'); }
@@ -2604,10 +2659,18 @@
       const c=(b.x/TILE)|0, r=(b.y/TILE)|0;
       if (c>=0&&r>=0&&c<COLS&&r<ROWS){
         const v = map[r][c];
-        if (v===1) { map[r][c]=0; mapDirty = true; b.dead=true; explode(b.x,b.y,'#caa'); continue; }
+        if (v===1) { if (!b.ghost){ map[r][c]=0; mapDirty = true; b.dead=true; explode(b.x,b.y,'#caa'); } continue; }
         if (v===2) { if (!b.ap) b.dead=true; continue; }
         if (v===3) { // 基地
+          if (b.from !== 'e') continue;   // 己方子弹（含基地炮塔）穿过基地格，不打自己
           if (baseShieldCharges > 0){ baseShieldCharges--; b.dead=true; explode(b.x,b.y,'#88ff44'); continue; }
+          if (base.alive && base.eshield > 0){
+            base.eshield--; base.eshieldTimer = 480; b.dead = true;
+            explode(b.x, b.y, '#69e6ff'); sfx.hit();
+            addFloater(base.c*TILE + 4, base.r*TILE - 8, '护盾 -1', '#69e6ff', 10);
+            baseWarn = 30; shake(4, 2);
+            continue;
+          }
           if (base.alive){
             base.hp--;
             if (base.hp <= 0){ base.alive=false; map[r][c]=0; mapDirty = true; explode(b.x,b.y,'#ffd24d'); shake(15,5); gameOver(false, 'base'); }
@@ -2960,7 +3023,9 @@
     setText(bufDoubleEl, doubleShot ? '二连射' : '-');
     if (base && base.alive) {
       const hp = base.hp;
-      setText(bufBaseEl, baseShieldCharges > 0 ? ('🛡×'+baseShieldCharges) : '❤'.repeat(Math.max(0,hp)));
+      const baseEsh = base && base.eshield > 0 ? (' ◈' + base.eshield) : '';
+      const baseItem = baseShieldCharges > 0 ? ('🛡×' + baseShieldCharges + ' ') : '';
+      setText(bufBaseEl, baseItem + '❤×' + Math.max(0, hp) + baseEsh);
     } else {
       setText(bufBaseEl, '💀');
     }
@@ -3689,6 +3754,47 @@
       else if (v === 3) drawBaseTile(c * TILE, r * TILE);
     }
 
+    // 基地：自动炮塔 + 能量护盾环
+    if (base && base.alive){
+      const bpx = base.c * TILE + TILE / 2, bpy = base.r * TILE + TILE / 2;
+      ctx.save();
+      ctx.translate(bpx, bpy);
+      ctx.rotate(base.turretAngle + Math.PI / 2);
+      // 炮管（浅金属 + 青色能量条，避免和深色背景糊在一起）
+      shape(ctx, -1.8, -13.6, 3.6, 10.0, 1.6, '#6b86a6', '#08131f', 1.0);
+      shape(ctx, -0.5, -12.8, 1.0, 8.6, 0.45, 'rgba(140,225,255,.72)');
+      // 炮口制退器
+      shape(ctx, -2.5, -15.0, 5.0, 2.4, 1.2, '#42596f', '#08131f', 0.9);
+      shape(ctx, -2.5, -15.0, 5.0, 0.9, 0.4, 'rgba(180,215,240,.6)');
+      // 炮塔基座盘（嵌在能量核心上）
+      circ(ctx, 0, 0, 2.7);
+      ctx.fillStyle = 'rgba(20,34,50,.86)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(105,230,255,.5)'; ctx.lineWidth = 0.9; ctx.stroke();
+      if (base.turretFlash > 0){
+        const f = base.turretFlash / 10;
+        circ(ctx, 0, -15.4, 2.6 * f + 1.4);
+        ctx.fillStyle = 'rgba(255,240,180,' + (0.85 * f).toFixed(2) + ')';
+        ctx.fill();
+      }
+      ctx.restore();
+      for (let k = 0; k < base.eshield; k++){
+        const rad = 10.8 + k * 2.4;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++){
+          const a = -Math.PI / 2 + i * Math.PI / 3;
+          const px = bpx + Math.cos(a) * rad;
+          const py = bpy + Math.sin(a) * rad * 0.94;
+          if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(105,230,255,.05)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(105,230,255,.62)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+      }
+    }
+
     // 道具
     for (const p of pickups) drawPickup(p);
 
@@ -3920,7 +4026,7 @@
     }
 
     // 基地危机警示
-    if (base && base.alive && base.hp <= 2 && baseShieldCharges <= 0){
+    if (base && base.alive && base.hp <= 3 && baseShieldCharges <= 0 && (!base.eshield || base.eshield <= 0)){
       const pulse = (Math.sin(Date.now() / 260) + 1) / 2;
       shape(ctx, 1.5, 1.5, W - 3, H - 3, 16, null, 'rgba(255,170,60,' + (0.24 + pulse * 0.36) + ')', 3);
       const bx = base.c * TILE, by = base.r * TILE;
@@ -4036,6 +4142,20 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.31-beta', date: '2026-10-19',
+      tags: [['new', '基地'], ['other', '平衡']],
+      desc: [
+        '基地血量 5 → 8：敌人现在会扎堆扑基地，5 点血撑不住一轮集火',
+        '基地自带两层能量护盾：挨打先扣护盾，停火 8 秒后每 3 秒自动充回一层，道具给的「基地加固」仍然优先消耗，不会白捡',
+        '基地装上自动炮塔：7 格内出现敌人就转向开火（伤害 1、破盾 1、1.8 秒一发），炮口有火光，子弹不会打坏自家的护墙',
+        '受击顺序固定为「道具护盾 → 能量护盾 → 血量」，护盾挨打时照样有全屏红闪和震屏，知道自己被打到了',
+        '基地外观补全：核心上多了一根会转向的金属炮管，外面套着可见层数的青色六边形护盾环，护盾掉了肉眼能看出来',
+        '面板「基地」一行改成「❤×8 ◈2」，8 颗心原来会把这一行挤爆；低血警告门槛也跟着从 2 上调到 3',
+        '修掉一个老问题：基地血量变化后底色不刷新（基座以前画在静态层上）',
+      ],
+      minor: [6],
+    },
     {
       ver: 'v1.30-beta', date: '2026-10-19',
       tags: [['new','敌人'],['fix','体验']],
@@ -4740,6 +4860,33 @@
     get lives() { return lives; },
     get level() { return level; },
     get baseHp() { return base ? base.hp : -1; },
+    get baseEshield() { return base ? base.eshield : -1; },
+    get baseTurretCd() { return base ? base.turretCd : -1; },
+    // 临时剥掉基地防御（能量护盾 + 炮塔），用于单独验证敌人的进攻性
+    stripBaseDefense() {
+      if (base){ base.eshield = 0; base.eshieldMax = 0; }
+      baseTurretEnabled = false;
+      return true;
+    },
+    // 模拟一次对基地的攻击（用于验证「道具护盾 → 能量护盾 → 血量」的消耗顺序）
+    hurtBase(n) {
+      if (!base || !base.alive) return null;
+      const dmg = n == null ? 1 : n;
+      if (baseShieldCharges > 0){
+        baseShieldCharges--;
+        return { eshield: base.eshield, hp: base.hp, item: true };
+      }
+      if (base.eshield > 0){
+        base.eshield--; base.eshieldTimer = 480;
+        return { eshield: base.eshield, hp: base.hp, item: false };
+      }
+      base.hp -= dmg;
+      if (base.hp <= 0){
+        base.alive = false; map[base.r][base.c] = 0; mapDirty = true;
+        gameOver(false, 'base');
+      }
+      return { eshield: base.eshield, hp: base.hp, item: false };
+    },
     setLevel(lv) { level = lv; levelEl.textContent = lv; rollLevelDebuffs(); },
     reloadLevel() { if (running) reloadLevel(); },
     clearEnemies() { enemies = []; },
