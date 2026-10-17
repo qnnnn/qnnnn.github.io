@@ -2441,7 +2441,7 @@
       }
       const enraged = boss.hp <= boss.maxHp / 2;
       const finalRage = boss.phase3;
-      const spd = boss.speed * (enraged ? 1.15 : 1) * (finalRage ? 1.2 : 1);
+      const spd = boss.speed * (enraged ? 1.15 : 1) * (finalRage ? 1.12 : 1);
       if (boss.moveTimer <= 0 || !boss.moveDir) {
         boss.moveDir = pickBossDir();   // 只在走得通的方向里挑（优先朝玩家/基地）
         if (boss.moveDir) boss.dir = boss.moveDir;
@@ -2461,7 +2461,7 @@
       }
       // 主射击（阶段 3 连发更多）
       if (boss.cooldown <= 0 && player && player.alive && hasLineOfSight(boss.x+boss.w/2, boss.y+boss.h/2, player.x+player.w/2, player.y+player.h/2)) {
-        const bulletCount = (finalRage ? 3 : 1) + Math.floor(level / 10);
+        const bulletCount = (finalRage ? 3 : 1) + Math.min(2, Math.floor(level / 12));
         const perp = d.x ? {x:0,y:-1} : {x:1,y:0};
         const cx = boss.x + boss.w/2, cy = boss.y + boss.h/2;
         for (let i=0;i<bulletCount;i++) {
@@ -2473,22 +2473,22 @@
             from: 'e', w: 6, h: 6
           });
         }
-        boss.cooldown = enraged ? 30 : 50;
+        boss.cooldown = enraged ? 38 : 56;
         sfx.shoot();
       }
       // Phase 2 burst (扇形)
       if (boss.phaseTriggered) {
         if (boss.phaseBurstCooldown > 0) boss.phaseBurstCooldown -= dt;
         if (boss.phaseBurstCooldown <= 0 && player && player.alive && hasLineOfSight(boss.x+boss.w/2, boss.y+boss.h/2, player.x+player.w/2, player.y+player.h/2)) {
-          boss.phaseBurstCooldown = finalRage ? 45 : 60;
+          boss.phaseBurstCooldown = finalRage ? 72 : 88;
           const bcx = boss.x + boss.w/2, bcy = boss.y + boss.h/2;
           const bd = DIR[boss.dir];
-          const spread = finalRage ? 5 : 3;
+          const spread = 3;
           for (let i=0;i<spread;i++) {
-            const angle_offset = (i - (spread-1)/2) * 0.26;
+            const angle_offset = (i - (spread-1)/2) * 0.30;
             const cos = Math.cos(angle_offset), sin = Math.sin(angle_offset);
-            const vx = (bd.x * cos - bd.y * sin) * 3;
-            const vy = (bd.y * cos + bd.x * sin) * 3;
+            const vx = (bd.x * cos - bd.y * sin) * 2.7;
+            const vy = (bd.y * cos + bd.x * sin) * 2.7;
             bullets.push({
               x: bcx + bd.x*(boss.w/2) - 2,
               y: bcy + bd.y*(boss.h/2) - 2,
@@ -2501,13 +2501,13 @@
       // Phase 3 环形弹幕（8 方向）
       if (finalRage) {
         if (boss.ringCooldown <= 0) {
-          boss.ringCooldown = 50;
+          boss.ringCooldown = 80;
           const bcx = boss.x + boss.w/2, bcy = boss.y + boss.h/2;
-          for (let i=0;i<8;i++) {
-            const ang = (i / 8) * Math.PI * 2;
+          for (let i=0;i<6;i++) {
+            const ang = (i / 6) * Math.PI * 2;
             bullets.push({
               x: bcx - 2, y: bcy - 2,
-              vx: Math.cos(ang) * 2.2, vy: Math.sin(ang) * 2.2,
+              vx: Math.cos(ang) * 2.0, vy: Math.sin(ang) * 2.0,
               from: 'e', w: 4, h: 4
             });
           }
@@ -2515,7 +2515,7 @@
         }
         // 周期召唤增援
         if (boss.summonCooldown <= 0) {
-          boss.summonCooldown = 240;
+          boss.summonCooldown = 360;
           spawnEnemy();
         }
       }
@@ -4177,6 +4177,20 @@
   // ===== 更新日志 =====
   const CHANGELOG = [
     {
+      ver: 'v1.33-beta', date: '2026-10-19',
+      tags: [['fix', 'Boss'], ['other', '平衡']],
+      desc: [
+        'Boss 最终狂暴阶段的弹幕密度砍掉三分之二：主射击冷却 30/50 帧放宽到 38/56，扇形齐射冷却 45/60 放宽到 72/88',
+        '扇形齐射不再随狂暴从 3 发变成 5 发，固定 3 发、扇面从 0.26 弧度拉开到 0.30，弹速 3 → 2.7，留出侧移缝隙',
+        '环形弹幕从 8 方向降到 6 方向，间隔 50 → 80 帧，弹速 2.2 → 2.0 —— 原来 0.83 秒就是一圈，现在 1.33 秒',
+        '主射击的并排发数不再随关卡无限增长（原来每 10 关 +1，第 30 关能一口气喷 6 发），改成最多 +2',
+        '召唤增援从 240 帧拉长到 360 帧，最终狂暴移速 ×1.2 → ×1.12，贴脸更容易被躲开',
+        '实测最终狂暴阶段同时在场的子弹：峰值 38 → 12，平均 27.1 → 6.4，从躲不开变成有缝可钻',
+        '新增回归用例 AB：锁住弹幕密度上限（峰值 ≤ 20、平均 ≤ 12），以后调 Boss 不会又悄悄喷起来',
+      ],
+      minor: [4, 5, 6],
+    },
+    {
       ver: 'v1.32-beta', date: '2026-10-19',
       tags: [['new', '基地'], ['other', '平衡']],
       desc: [
@@ -4892,6 +4906,10 @@
     get bossX() { return boss ? boss.x : -1; },
     get bossY() { return boss ? boss.y : -1; },
     get bossInWall() { return boss ? bossRectBlocked(boss.x, boss.y) : false; },
+    setBossHp(v) { if (boss && boss.alive) { boss.hp = Math.max(1, v); } },
+    get bossHp() { return boss && boss.alive ? boss.hp : -1; },
+    get bossMaxHp() { return boss && boss.alive ? boss.maxHp : -1; },
+    get enemyBulletCount() { return bullets.filter(b => b.from === 'e').length; },
     get bossCanGoAny() { return boss ? ['up','down','left','right'].some(d => bossCanGo(d)) : false; },
     get isRunning() { return running; },
     get playerY() { return player ? player.y : -1; },

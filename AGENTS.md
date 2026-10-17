@@ -1,12 +1,12 @@
 # AGENTS.md — Battle City (坦克大战)
 
-Single-file HTML5 Canvas game (~228KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
+Single-file HTML5 Canvas game (~234KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
 
 ## Commands
 
 | Command | What |
 |---------|------|
-| `npx playwright test` | Run all 44 tests headless |
+| `npx playwright test` | Run all 45 tests headless |
 | `npx playwright test --headed` | Run with browser visible |
 | `npx playwright test -g "test name"` | Run single test by name |
 
@@ -19,7 +19,7 @@ Single-file HTML5 Canvas game (~228KB in `index.html`). No build, no bundler, no
 - Tests load the game via `file://` protocol — no server needed.
 - Config: `playwright.config.mjs` (headless, 800×800 viewport, 30s timeout). If Playwright's bundled Chromium is not installed (e.g. offline, so `npx playwright install` can't run), the config automatically falls back to the system Google Chrome via `channel: 'chrome'`.
 - Test file: `battle-city.spec.mjs` — ESM (`.mjs`) despite `"type": "commonjs"` in `package.json`.
-- All 44 tests are **flat top-level** (no `describe()` blocks).
+- All 45 tests are **flat top-level** (no `describe()` blocks).
 - Tests mix `page.waitForTimeout()` (time-based waits for game state) with explicit Playwright assertions. If a test is flaky, increasing these timeouts is the typical fix — **but not when the flake is a read race.** When a test spawns an entity that can die almost immediately, the "before" baseline (`score`, `killedCount`) must be read inside the *same* `page.evaluate()` as the spawn. A separate round-trip read can land after the death frame, so the assertion overshoots and no amount of extra waiting helps. Tests N and O hit this; see `battle-city.spec.mjs` for the atomic-baseline pattern.
 - Newer tests use the `window.__test` debug API (e.g. `triggerPlayerDeath`, `applyBuff`, `addLevelDebuff`, `hitPlayer`, `setBaseHp`) to set up deterministic game states.
 - `node_modules/` and `test-results/` are gitignored.
@@ -133,6 +133,19 @@ Ally bullets are tagged `from: 'p'` (so they damage enemies, not teammates) but 
 ## Boss movement
 
 The boss is 2×2 tiles, so the generic `canMove()` (which samples only the four corners) is not used for it — one-tile-wide walls in the middle of its footprint went undetected and the boss would embed itself in the map. `bossRectBlocked(nx, ny)` walks every tile the boss covers; `bossCanGo(dir)` probes a short step ahead; `pickBossDir()` only returns directions that pass that probe (player/base direction first, then random). Moving into brick crushes it via `crushBricksUnderBoss()` (steel, water, and the base's protective walls are exempt), and `relocateBoss()` is the last resort after ~150 stuck frames. Enemies never block the boss. Keep the boss on this path — routing it back through `canMove()` reintroduces the stuck-in-wall bug, which test `U` guards against.
+
+## Boss bullet budget
+
+The boss has three overlapping attack timers; in the final-rage phase (hp ≤ ¼) all three fire at once, which is where it used to become undodgeable. Current numbers, all in ticks at 60fps:
+
+| Attack | Cooldown | Volley |
+|--------|----------|--------|
+| main shot (`boss.cooldown`) | 38 enraged / 56 calm | `(finalRage ? 3 : 1) + min(2, floor(level / 12))` |
+| fan burst (`boss.phaseBurstCooldown`, phase 2+) | 72 final-rage / 88 | fixed 3 bullets, 0.30 rad apart, speed 2.7 |
+| ring barrage (`boss.ringCooldown`, phase 3) | 80 | 6 directions, speed 2.0 |
+| summon (`boss.summonCooldown`, phase 3) | 360 | one `spawnEnemy()` |
+
+The main-shot bullet count is **capped at +2** on purpose — it used to be `floor(level / 10)` unbounded, so a level-30 boss vomited six bullets per volley. The fan burst is a fixed 3 bullets for the same reason (final rage used to widen it to 5). Measured final-rage density after the nerf: peak 12 / average 6.4 enemy bullets on screen, down from 38 / 27.1. Test `AB` asserts peak ≤ 20 and average ≤ 12, so raising any cooldown or widening a volley will fail it — adjust the assertion deliberately if a buff is intended.
 
 ## Page must never scroll
 

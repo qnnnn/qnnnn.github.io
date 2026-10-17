@@ -750,3 +750,40 @@ test('AA: the base defends itself with hp, an energy shield and a turret', async
   expect(probe.before).toBe(8);
   expect(probe.after).toBeLessThan(probe.before);
 });
+
+test('AB: boss final-rage bullet density stays dodgeable', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(1200);
+  await page.keyboard.press('o');            // 无敌，专心测弹幕
+  await page.evaluate(() => { window.__test.setLevel(5); window.__test.reloadLevel(); });
+  await page.waitForTimeout(3000);
+
+  const boss = await page.evaluate(() => ({
+    hp: window.__test.bossHp,
+    maxHp: window.__test.bossMaxHp,
+  }));
+  expect(boss.hp).toBeGreaterThan(0);
+
+  // 打到四分之一血触发最终狂暴（环形弹幕 + 扇形齐射同时开）
+  await page.evaluate(() => {
+    const t = window.__test;
+    t.setBossHp(Math.floor(t.bossMaxHp * 0.2));
+  });
+  await page.waitForTimeout(800);
+
+  let peak = 0;
+  let sum = 0;
+  let n = 0;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 4000) {
+    const c = await page.evaluate(() => window.__test.enemyBulletCount);
+    peak = Math.max(peak, c);
+    sum += c;
+    n++;
+    await page.waitForTimeout(60);
+  }
+
+  // v1.32 及之前峰值能到 38、平均 27，根本躲不开；这里锁住削弱后的上限
+  expect(peak).toBeLessThanOrEqual(20);
+  expect(sum / n).toBeLessThanOrEqual(12);
+});
