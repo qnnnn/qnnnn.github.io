@@ -477,3 +477,30 @@ test('S: ally chases an enemy far outside the base guard radius', async ({ page 
   // 主动出击：离开基地附近，向敌人方向推进
   expect(after).toBeGreaterThan(before + 16);
 });
+
+test('T: game keys never scroll the page, and buttons drop focus', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(500);
+  // 页面不能有可滚动区域（#game 用 transform 放大，布局盒可能溢出视口）
+  const gap = await page.evaluate(() => {
+    const se = document.scrollingElement;
+    return se.scrollHeight - se.clientHeight;
+  });
+  expect(gap).toBeLessThanOrEqual(0);
+  const before = await page.evaluate(() => window.scrollY);
+  for (const k of ['Space', 'ArrowDown', 'ArrowDown', 'ArrowUp', 'PageDown', 'PageDown', 'Space']) {
+    await page.keyboard.press(k);
+    await page.waitForTimeout(60);
+  }
+  expect(await page.evaluate(() => window.scrollY)).toBe(before);
+  // 点过按钮后焦点回到 body：空格不会再触发那个按钮
+  await page.keyboard.press('m');
+  await page.waitForTimeout(400);
+  await page.click('#btnResume');
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => document.activeElement.tagName)).toBe('BODY');
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__test.isRunning)).toBe(true);
+  expect(await page.locator('#overlay').isVisible()).toBe(false);
+});

@@ -1,12 +1,12 @@
 # AGENTS.md — Battle City (坦克大战)
 
-Single-file HTML5 Canvas game (~190KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
+Single-file HTML5 Canvas game (~193KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
 
 ## Commands
 
 | Command | What |
 |---------|------|
-| `npx playwright test` | Run all 36 tests headless |
+| `npx playwright test` | Run all 37 tests headless |
 | `npx playwright test --headed` | Run with browser visible |
 | `npx playwright test -g "test name"` | Run single test by name |
 
@@ -19,7 +19,7 @@ Single-file HTML5 Canvas game (~190KB in `index.html`). No build, no bundler, no
 - Tests load the game via `file://` protocol — no server needed.
 - Config: `playwright.config.mjs` (headless, 800×800 viewport, 30s timeout). If Playwright's bundled Chromium is not installed (e.g. offline, so `npx playwright install` can't run), the config automatically falls back to the system Google Chrome via `channel: 'chrome'`.
 - Test file: `battle-city.spec.mjs` — ESM (`.mjs`) despite `"type": "commonjs"` in `package.json`.
-- All 36 tests are **flat top-level** (no `describe()` blocks).
+- All 37 tests are **flat top-level** (no `describe()` blocks).
 - Tests mix `page.waitForTimeout()` (time-based waits for game state) with explicit Playwright assertions. If a test is flaky, increasing these timeouts is the typical fix — **but not when the flake is a read race.** When a test spawns an entity that can die almost immediately, the "before" baseline (`score`, `killedCount`) must be read inside the *same* `page.evaluate()` as the spawn. A separate round-trip read can land after the death frame, so the assertion overshoots and no amount of extra waiting helps. Tests N and O hit this; see `battle-city.spec.mjs` for the atomic-baseline pattern.
 - Newer tests use the `window.__test` debug API (e.g. `triggerPlayerDeath`, `applyBuff`, `addLevelDebuff`, `hitPlayer`, `setBaseHp`) to set up deterministic game states.
 - `node_modules/` and `test-results/` are gitignored.
@@ -70,6 +70,10 @@ Ally bullets are tagged `from: 'p'` (so they damage enemies, not teammates) but 
 ## Level debuffs
 
 `DEBUFF_EFFECTS` holds the pool: `slow`, `blind`, `drain`, `vuln`. Reverse-controls was removed (it made the game feel broken rather than hard) — do not re-add it to the array; `addLevelDebuff()` rejects names that are not in the pool, and test `I` asserts that.
+
+## Page must never scroll
+
+Desktop scaling applies `transform: scale()` to `#game`, so its layout box can be taller than the viewport even though the painted result fits. `.wrap` clips that overflow and `html, body` set `overflow: hidden` + `overscroll-behavior: none`, which keeps `document.scrollingElement.scrollHeight === clientHeight`. A `keydown` handler calls `preventDefault()` for every key in `GAME_KEYS` (WASD, J/K, Space, arrows, P/R/O/I/L/M) so arrow keys and Space cannot scroll the page, and clicking any button blurs it so Space cannot retrigger it. Test `T` asserts both. Re-check `scrollHeight` whenever the panel grows or a new overlay is added.
 
 ## Deployment
 
