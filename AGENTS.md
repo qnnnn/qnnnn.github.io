@@ -79,6 +79,21 @@ The boss is 2×2 tiles, so the generic `canMove()` (which samples only the four 
 
 Desktop scaling applies `transform: scale()` to `#game`, so its layout box can be taller than the viewport even though the painted result fits. `.wrap` clips that overflow and `html, body` set `overflow: hidden` + `overscroll-behavior: none`, which keeps `document.scrollingElement.scrollHeight === clientHeight`. A `keydown` handler calls `preventDefault()` for every key in `GAME_KEYS` (WASD, J/K, Space, arrows, P/R/O/I/L/M) so arrow keys and Space cannot scroll the page, and clicking any button blurs it so Space cannot retrigger it. Test `T` asserts both. Re-check `scrollHeight` whenever the panel grows or a new overlay is added.
 
+## The panel must not move the canvas
+
+`.wrap` centers `#game` vertically, so anything that changes `#game`'s height shifts the whole canvas up or down. The right-hand panel has several rows that appear and disappear mid-game (`#diffRow`, `#comboRow`, `#levelDebuffRow`, `#cheatRow`, P2), and each extra row used to grow the panel by ~16px and shove the canvas up 13–14px.
+
+The fix pins the desktop panel to the canvas height and lets only the top info card absorb growth:
+
+```css
+body:not(.is-touch) #game  { align-items: stretch; }
+body:not(.is-touch) #panel { height: 512px; max-height: 512px; }
+body:not(.is-touch) #panel > * { flex: 0 0 auto; }
+body:not(.is-touch) #hudBox { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+```
+
+`#hudBox` is the score/level/HP card. Keep the panel's fixed height and the bottom items (mute button, hint) pinned: making `#panel` itself scroll instead hid the mute button. Horizontal spacing in the panel is deliberately tight (`.box` padding, `.row` padding, `.key-row` padding, `.mute-icon` padding) so all four dynamic rows fit — with everything open the HUD card overflows by 1px, which is the room you have. Verify with `gameTop` in `page.evaluate()` across window sizes and row combinations after touching panel CSS.
+
 ## Deployment
 
 GitHub Pages at `qnnnn.github.io` (packaged as a subpath of the `qnnnn/qnnnn.github.io` repo). Push to `main` to deploy — the site serves `index.html` at the repo root.

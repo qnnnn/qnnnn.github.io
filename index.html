@@ -133,10 +133,26 @@
     width: 168px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     font-size: 12px;
     flex-shrink: 0;
   }
+  /* 面板高度锁定成画布高度：连杀 / 关卡惩罚 / 作弊 / 难度这些行是动态显隐的，
+     让它们撑高面板的话 #game 高度也会变，而 .wrap 是垂直居中 → 整个画面上下跳。
+     这里把面板钉在 512px，让上面那块信息区自己吃掉剩余高度并在内部滚动，
+     底部的「操作 / 静音 / 提示」永远贴底可见。 */
+  body:not(.is-touch) #game { align-items: stretch; }
+  body:not(.is-touch) #panel { height: 512px; max-height: 512px; }
+  body:not(.is-touch) #panel > * { flex: 0 0 auto; }
+  body:not(.is-touch) #hudBox {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    overscroll-behavior: contain;
+  }
+  body:not(.is-touch) #hudBox::-webkit-scrollbar { width: 0; height: 0; }
   .title {
     display: flex;
     flex-direction: column;
@@ -165,7 +181,7 @@
     position: relative;
     border-radius: var(--r-md);
     border: 1px solid rgba(120,205,255,.16);
-    padding: 10px 11px;
+    padding: 8px 10px;
     background: linear-gradient(168deg, rgba(26,44,74,.72), rgba(11,20,36,.78));
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,.06),
@@ -193,7 +209,7 @@
     justify-content: space-between;
     align-items: center;
     gap: 6px;
-    padding: 2.5px 0;
+    padding: 1.5px 0;
     color: var(--ink-2);
   }
   .row > span:first-child { color: var(--ink-3); letter-spacing: .04em; white-space: nowrap; flex: 0 0 auto; }
@@ -210,7 +226,7 @@
   .mute-icon {
     cursor: pointer;
     text-align: center;
-    padding: 8px 6px;
+    padding: 5px 6px;
     font-size: 12px;
     font-weight: 600;
     letter-spacing: .06em;
@@ -282,8 +298,8 @@
     flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    gap: 5px 8px;
-    padding: 3px 0;
+    gap: 4px 8px;
+    padding: 1px 0;
   }
   .key-row .kbd { white-space: nowrap; }
   .key-row .desc { color: var(--ink-3); margin-left: auto; }
@@ -686,7 +702,7 @@
         <span class="t-main">坦克大战</span>
         <span class="t-sub">Battle City</span>
       </div>
-      <div class="box">
+      <div class="box" id="hudBox">
         <div class="row"><span>得分</span><span class="val" id="score">0</span></div>
         <div class="row" id="diffRow" style="display:none"><span>难度</span><span class="val" id="diffLabel" style="color:#ffab4d">困难</span></div>
         <div class="row"><span id="levelLabel">关卡</span><span class="val"><span id="level">1</span> · ❤<span id="lives">3</span></span></div>
@@ -3715,6 +3731,17 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.25', date: '2026-10-18',
+      tags: [['fix','布局'],['other','体验']],
+      desc: [
+        '修复「玩起来画面会上下位移」：右侧信息面板里难度、连杀、本关惩罚、作弊这些行是动态出现的，多一行就把整个游戏区撑高，而游戏区在页面里是垂直居中的，于是每多一行画面就整体上跳 13~14px',
+        '桌面端面板改为固定 512px（与画布等高），游戏区改为顶部对齐，动态行再也不会影响画面位置',
+        '面板第一张卡片（得分/关卡/敌军/血量/基地/武器）改为区内自适应，动态行增加时只在这张卡片内部消化',
+        '顺带压缩面板间距（卡片内边距、行距、按键行、静音按钮），使「作弊 + 困难 + 本关惩罚 + 连杀」全开时也只溢出 1px',
+        '三种窗口尺寸 × 四种状态实测：游戏区与画布的顶部坐标恒定不变',
+      ],
+    },
     {
       ver: 'v1.24', date: '2026-10-18',
       tags: [['fix','Boss'],['other','体验']],
