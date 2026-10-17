@@ -94,6 +94,21 @@ body:not(.is-touch) #hudBox { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
 `#hudBox` is the score/level/HP card. Keep the panel's fixed height and the bottom items (mute button, hint) pinned: making `#panel` itself scroll instead hid the mute button. Horizontal spacing in the panel is deliberately tight (`.box` padding, `.row` padding, `.key-row` padding, `.mute-icon` padding) so all four dynamic rows fit — with everything open the HUD card overflows by 1px, which is the room you have. Verify with `gameTop` in `page.evaluate()` across window sizes and row combinations after touching panel CSS.
 
+## Visual language: flat, off-kilter, no gradients
+
+The look is deliberately hand-built rather than "shiny UI kit": **zero gradients anywhere** (`background`, `box-shadow`, text, canvas — `grep gradient(` must stay at 0) and **no glow** (`ctx.shadowBlur` stays 0; use `shadowOffsetX/Y` for hard drop shadows, `box-shadow: Npx Npx 0 color` in CSS).
+
+Depth comes from three things instead: flat colour steps, hard offset shadows, and ~2px solid borders.
+
+Two canvas helpers exist because of this:
+
+- `midColor(stops)` / `linGrad()` / `radGrad()` — `linGrad` and `radGrad` no longer create a `CanvasGradient`; they return the middle stop's flat colour so shading is a single value. Lighting is applied by drawing explicit highlight/shade blocks on top (the brick, steel, tank and base draw functions each add their own). If you need more depth, add another flat block — do not reach for `createLinearGradient`.
+- `shapeA(g, x, y, w, h, [tl, tr, br, bl], fill, stroke, lw)` — a rounded rect with four *different* corner radii. Use it for cards and panels so nothing looks template-rounded.
+
+Asymmetry is intentional and should be preserved: the two panel cards are offset horizontally, their corner radii differ, even `#hudBox` rows are indented, menu buttons each have their own `--tilt` (rotation) and uneven `margin-top`, and headings are rotated a degree or two. Blanket-regularising this (one radius, one gap, everything centered) is exactly what made it look generated.
+
+The canvas HUD text (combo, level intro, boss warning, pause card) uses the same rules: flat fills, hard 2–3px offset shadows, `shapeA` panels. The `blind` debuff is a hard-edged rectangular viewport (four flat rects), not a radial vignette.
+
 ## Deployment
 
 GitHub Pages at `qnnnn.github.io` (packaged as a subpath of the `qnnnn/qnnnn.github.io` repo). Push to `main` to deploy — the site serves `index.html` at the repo root.
