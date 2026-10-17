@@ -1368,6 +1368,7 @@
     }
     base = { r: br, c: bc, alive: true, hp: 8, maxHp: 8,
       eshield: 2, eshieldMax: 2, eshieldTimer: 0,
+      invTimer: 0,
       turretCd: 100, turretAngle: -Math.PI / 2, turretFlash: 0 };
     mapDirty = true;
   }
@@ -1402,6 +1403,7 @@
     }
     base = { r: br, c: bc, alive: true, hp: 8, maxHp: 8,
       eshield: 2, eshieldMax: 2, eshieldTimer: 0,
+      invTimer: 0,
       turretCd: 100, turretAngle: -Math.PI / 2, turretFlash: 0 };
     mapDirty = true;
   }
@@ -1976,8 +1978,12 @@
   const BASE_TURRET_RANGE = TILE * 7;
 
   // 基地能量护盾回充 + 自动炮塔（基地不再只是被动挨打）
+  const BASE_INV_TICKS = 45;   // 受击后的短暂无敌（0.75 秒）
+
   function updateBase(dt){
-    if (!base || !base.alive || levelIntroTimer > 0) return;
+    if (!base || !base.alive) return;
+    if (base.invTimer > 0) base.invTimer -= dt;
+    if (levelIntroTimer > 0) return;
     // 护盾回充：停火 8 秒后每 3 秒补一层
     if (base.eshield < base.eshieldMax){
       base.eshieldTimer -= dt;
@@ -2312,14 +2318,19 @@
             if (tr>=0&&tc>=0&&tr<ROWS&&tc<COLS && map[tr][tc]===3){ hc=tc; hr=tr; break; }
           }
           if (hc>=0 && base.alive){
-            if (baseShieldCharges > 0){ baseShieldCharges--; explode(hc*TILE,hr*TILE,'#88ff44'); }
+            if (base.invTimer > 0){
+              explode(hc*TILE,hr*TILE,'#dff4ff');
+              addFloater(base.c*TILE + 4, base.r*TILE - 6, '无敌', '#dff4ff', 11);
+            }
+            else if (baseShieldCharges > 0){ baseShieldCharges--; explode(hc*TILE,hr*TILE,'#88ff44'); base.invTimer = BASE_INV_TICKS; }
             else if (base.eshield > 0){
-              base.eshield--; base.eshieldTimer = 480;
+              base.eshield--; base.eshieldTimer = 480; base.invTimer = BASE_INV_TICKS;
               explode(hc*TILE,hr*TILE,'#69e6ff'); sfx.hit();
               addFloater(base.c*TILE + 4, base.r*TILE - 6, '护盾 -1', '#69e6ff', 11);
             }
             else {
               base.hp -= 2;
+              base.invTimer = BASE_INV_TICKS;
               if (base.hp <= 0){ base.alive=false; map[hr][hc]=0; mapDirty = true; gameOver(false, 'base'); }
               else {
                 explode(hc*TILE,hr*TILE,'#ff6600'); sfx.boom();
@@ -2663,9 +2674,15 @@
         if (v===2) { if (!b.ap) b.dead=true; continue; }
         if (v===3) { // 基地
           if (b.from !== 'e') continue;   // 己方子弹（含基地炮塔）穿过基地格，不打自己
+          if (base.alive && base.invTimer > 0){
+            b.dead = true;
+            explode(b.x, b.y, '#dff4ff');
+            addFloater(base.c * TILE + 4, base.r * TILE - 10, '无敌', '#dff4ff', 9);
+            continue;
+          }
           if (baseShieldCharges > 0){ baseShieldCharges--; b.dead=true; explode(b.x,b.y,'#88ff44'); continue; }
           if (base.alive && base.eshield > 0){
-            base.eshield--; base.eshieldTimer = 480; b.dead = true;
+            base.eshield--; base.eshieldTimer = 480; base.invTimer = BASE_INV_TICKS; b.dead = true;
             explode(b.x, b.y, '#69e6ff'); sfx.hit();
             addFloater(base.c*TILE + 4, base.r*TILE - 8, '护盾 -1', '#69e6ff', 10);
             baseWarn = 30; shake(4, 2);
@@ -2673,6 +2690,7 @@
           }
           if (base.alive){
             base.hp--;
+            base.invTimer = BASE_INV_TICKS;
             if (base.hp <= 0){ base.alive=false; map[r][c]=0; mapDirty = true; explode(b.x,b.y,'#ffd24d'); shake(15,5); gameOver(false, 'base'); }
             else {
               explode(b.x,b.y,'#ffa500'); sfx.hit();
@@ -3777,6 +3795,22 @@
         ctx.fill();
       }
       ctx.restore();
+      if (base.invTimer > 0){
+        const ip = Math.min(1, base.invTimer / 45);
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++){
+          const a = -Math.PI / 2 + i * Math.PI / 3;
+          const px = bpx + Math.cos(a) * 13.4;
+          const py = bpy + Math.sin(a) * 13.4 * 0.94;
+          if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(235,250,255,' + (0.06 + 0.14 * ip).toFixed(3) + ')';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(235,250,255,' + (0.42 + 0.5 * ip).toFixed(3) + ')';
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+      }
       for (let k = 0; k < base.eshield; k++){
         const rad = 10.8 + k * 2.4;
         ctx.beginPath();
@@ -4142,6 +4176,19 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.32-beta', date: '2026-10-19',
+      tags: [['new', '基地'], ['other', '平衡']],
+      desc: [
+        '基地挨打之后有 0.75 秒无敌（45 帧）：多台敌人同时集火也只能打进一发，被围住时不会瞬间掉好几血',
+        '无敌期间飞来的子弹会被直接弹开，冒一小团白色火花并飘出「无敌」两个字，不是静默吞伤害',
+        '自杀兵这时候撞上来也炸不动基地，同样只显示「无敌」，但它自己还是会撞毁',
+        '不管是道具护盾挡下、能量护盾挡下还是真的掉血，只要挨了一次就进入无敌 —— 三种伤害入口共用同一套节奏',
+        '外观上多了一圈白色六边形光环：刚受击时最亮最实，随着无敌时间结束慢慢淡掉，一眼看出现在能不能抗',
+        '基地血量 8、自动炮塔、能量护盾全部保留，无敌只是让「被围殴」不再等于「必掉血」',
+      ],
+      minor: [5],
+    },
     {
       ver: 'v1.31-beta', date: '2026-10-19',
       tags: [['new', '基地'], ['other', '平衡']],
@@ -4864,7 +4911,7 @@
     get baseTurretCd() { return base ? base.turretCd : -1; },
     // 临时剥掉基地防御（能量护盾 + 炮塔），用于单独验证敌人的进攻性
     stripBaseDefense() {
-      if (base){ base.eshield = 0; base.eshieldMax = 0; }
+      if (base){ base.eshield = 0; base.eshieldMax = 0; base.invTimer = 0; }
       baseTurretEnabled = false;
       return true;
     },
@@ -4872,21 +4919,26 @@
     hurtBase(n) {
       if (!base || !base.alive) return null;
       const dmg = n == null ? 1 : n;
+      if (base.invTimer > 0){
+        return { eshield: base.eshield, hp: base.hp, item: false, inv: true };
+      }
       if (baseShieldCharges > 0){
-        baseShieldCharges--;
-        return { eshield: base.eshield, hp: base.hp, item: true };
+        baseShieldCharges--; base.invTimer = BASE_INV_TICKS;
+        return { eshield: base.eshield, hp: base.hp, item: true, inv: false };
       }
       if (base.eshield > 0){
-        base.eshield--; base.eshieldTimer = 480;
-        return { eshield: base.eshield, hp: base.hp, item: false };
+        base.eshield--; base.eshieldTimer = 480; base.invTimer = BASE_INV_TICKS;
+        return { eshield: base.eshield, hp: base.hp, item: false, inv: false };
       }
       base.hp -= dmg;
+      base.invTimer = BASE_INV_TICKS;
       if (base.hp <= 0){
         base.alive = false; map[base.r][base.c] = 0; mapDirty = true;
         gameOver(false, 'base');
       }
-      return { eshield: base.eshield, hp: base.hp, item: false };
+      return { eshield: base.eshield, hp: base.hp, item: false, inv: false };
     },
+    get baseInvTimer() { return base ? base.invTimer : -1; },
     setLevel(lv) { level = lv; levelEl.textContent = lv; rollLevelDebuffs(); },
     reloadLevel() { if (running) reloadLevel(); },
     clearEnemies() { enemies = []; },

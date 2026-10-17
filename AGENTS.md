@@ -114,6 +114,8 @@ The base is not a passive target. Three layers stack in this order (`hurtBase()`
 2. `base.eshield` — two regenerating energy layers. A hit sets `base.eshieldTimer = 480`; after that the base refills one layer every 180 ticks while untouched. Do not let the recharge run during `levelIntroTimer`.
 3. `base.hp` — now `8` (it used to be `5`, which could not survive the base rush). Bullets take 1, suicide tanks take 2.
 
+After any hit lands — whether it was soaked by an item shield, an energy layer or the hull — the base enters `BASE_INV_TICKS` (45) ticks of invincibility. `base.invTimer` is decremented at the top of `updateBase()` (before the `levelIntroTimer` early-return, so it keeps counting during the level card). Bullets that arrive during that window are bounced (`explode(..., '#dff4ff')` + an `无敌` floater) instead of being silently dropped, and a suicide tank that reaches the base during it explodes without dealing damage. Do not make the invincibility window longer than the turret cooldown (110) — the generous 45/110 ratio is what keeps a surround from erasing several hp in one volley.
+
 `base` also carries a turret: `updateBase(dt)` scans for the nearest enemy (or boss) within `BASE_TURRET_RANGE` (7 tiles) and fires every 110 ticks for `dmg: 1, pierce: 1`. Turret bullets are pushed with `from: 'p'` and `ghost: true` — friendly fire through the base tile is skipped in the bullet loop (`if (v===3 && b.from !== 'e') continue;`) and `ghost` keeps brick walls from being eaten from the inside. `baseTurretEnabled` / `__test.stripBaseDefense()` exist so test `Z` can measure enemy aggression without the base shooting back; test `AA` covers the hurt order and that the turret actually damages an adjacent enemy.
 
 ## AI allies

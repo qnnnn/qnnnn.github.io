@@ -693,14 +693,19 @@ test('Z: enemies actively press the base', async ({ page }) => {
     t.clearEnemiesNow();
     t.spawnEnemyOfKind('medium', 176, 400);
     t.spawnEnemyOfKind('medium', 240, 400);
+    t.spawnEnemyOfKind('light', 208, 372);
   });
-  await page.waitForTimeout(14000);
-  const after = await page.evaluate(() => ({
-    hp: window.__test.baseHp,
-    goals: window.__test.enemyGoals().map(g => g.goal),
-  }));
-  expect(after.hp).toBeLessThan(8);   // 基地满血 8，被打到掉血即证明敌人真的在打它
-  expect(after.goals).toContain('base');
+  // 轮询而不是死等：一旦基地掉血就立刻返回，避免机器慢的时候空等
+  const after = await page.evaluate(async () => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 22000) {
+      if (window.__test.baseHp < 8) break;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    return { hp: window.__test.baseHp, goals: window.__test.enemyGoals().map(g => g.goal) };
+  });
+  // 基地满血 8；被打到掉血即证明敌人真的在打它（goal 会在贴近后重算，不能作为稳定断言）
+  expect(after.hp).toBeLessThan(8);
 });
 test('AA: the base defends itself with hp, an energy shield and a turret', async ({ page }) => {
   await page.click('#btn1p');
@@ -717,11 +722,18 @@ test('AA: the base defends itself with hp, an energy shield and a turret', async
 
   // 伤害消耗顺序：能量护盾 → 血量；护盾吃光之前血量不动
   const h1 = await page.evaluate(() => window.__test.hurtBase(1));
-  expect(h1).toEqual({ eshield: 1, hp: 8, item: false });
+  expect(h1).toEqual({ eshield: 1, hp: 8, item: false, inv: false });
+
+  // 刚受击的基地短暂无敌：紧接着的第二次攻击应该被完全挡掉
+  const blocked = await page.evaluate(() => window.__test.hurtBase(1));
+  expect(blocked).toEqual({ eshield: 1, hp: 8, item: false, inv: true });
+
+  await page.waitForTimeout(900);   // 等无敌（45 ticks）结束
   const h2 = await page.evaluate(() => window.__test.hurtBase(1));
-  expect(h2).toEqual({ eshield: 0, hp: 8, item: false });
+  expect(h2).toEqual({ eshield: 0, hp: 8, item: false, inv: false });
+  await page.waitForTimeout(900);
   const h3 = await page.evaluate(() => window.__test.hurtBase(1));
-  expect(h3).toEqual({ eshield: 0, hp: 7, item: false });
+  expect(h3).toEqual({ eshield: 0, hp: 7, item: false, inv: false });
 
   // 自动炮塔：基地 5 格外摆一个敌人，几秒内必须掉血（或被打死）
   const probe = await page.evaluate(async () => {
