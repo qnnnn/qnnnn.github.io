@@ -436,6 +436,54 @@
     align-items: center;
     padding: 8px 0;
   }
+  /* 三种坦克选择：各自歪一点，选中的填成青色 */
+  .tank-picks {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .tank-picks .pick-label {
+    font-size: 12px;
+    letter-spacing: .12em;
+    color: var(--ink-3);
+  }
+  .tank-picks .pick {
+    font: inherit;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 6px 13px 5px;
+    font-size: 12.5px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    color: #bfe6ff;
+    background: #17293d;
+    border: 2px solid #04121c;
+    border-radius: 3px 11px 4px 9px;
+    box-shadow: 3px 3px 0 0 #04121c;
+  }
+  .tank-picks .pick:nth-child(2) { transform: rotate(-1.6deg); }
+  .tank-picks .pick:nth-child(3) { transform: rotate(1.4deg); margin-top: 3px; }
+  .tank-picks .pick:nth-child(4) { transform: rotate(-0.9deg); margin-top: -2px; }
+  .tank-picks .pick small {
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    opacity: .6;
+  }
+  .tank-picks .pick.on {
+    background: #eaf5ff;
+    color: #0b1b2c;
+    border-color: #04121c;
+    box-shadow: 3px 3px 0 0 #04121c, 0 0 0 2px #37dbff;
+  }
+  .tank-picks .pick.on small { opacity: .75; }
+  .tank-picks .pick:active { transform: translate(2px, 2px) rotate(0deg); }
   #overlay p {
     color: var(--ink-2);
     font-size: 13.5px;
@@ -756,6 +804,7 @@
         <div class="row"><span>血量</span><span class="val" id="hpDisplay">❤❤❤❤❤</span></div>
         <div class="row"><span>基地</span><span class="val" id="bufBase">❤❤❤❤❤</span></div>
         <div class="panel-section">武器</div>
+        <div class="row"><span>坦克</span><span class="val" id="wpnTank">标准</span></div>
         <div class="row"><span>子弹</span><span class="val" id="wpnBullet">普通</span></div>
         <div class="row"><span>护盾</span><span class="val" id="wpnShield">-</span></div>
         <div class="row"><span>连射</span><span class="val" id="wpnDouble">-</span></div>
@@ -794,6 +843,12 @@
     <div class="ov-sub">Battle City · Neon Ops</div>
     <p id="ovText"><span class="pc-only">操作说明：<br>W A S D 移动 &nbsp; J / 空格 开炮<br>↑ ↓ ← → 移动 &nbsp; K 开炮（双人）<br></span>P 暂停 &nbsp; M 菜单 &nbsp; R 重试本关<br>消灭所有敌方坦克，守住基地！<br><br>生存模式无限波次，看你能撑多久！<br>困难模式只有 1 条命、3 点血，敌人更多更快！</p>
     <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
+      <div class="tank-picks" id="tankPicks">
+        <span class="pick-label">选择坦克</span>
+        <button class="pick on" data-tank="standard">标准<small>均衡</small></button>
+        <button class="pick" data-tank="heavy">重炮<small>破盾</small></button>
+        <button class="pick" data-tank="scout">迅捷<small>快射</small></button>
+      </div>
       <div class="ov-btns">
         <button class="btn" id="btn1p">单人模式</button>
         <button class="btn" id="btn2p">双人模式</button>
@@ -919,7 +974,7 @@
   const DIFFS = {
     normal: {
       label: '普通', lives: 3, maxHP: 5,
-      totalBase: 20, totalStep: 2, bossBonus: 0,   // 每关敌军总量：base + (level-1)*step
+      totalBase: 18, totalStep: 1.5, bossBonus: 0, // 每关敌军总量：base + (level-1)*step（后期靠护盾而非数量）
       spawnTimer: 220, spawnFloor: 70,             // 刷怪间隔（ticks）
       enemySpeedMul: 1, enemyBulletSpeed: 2.4,
       shootBase: 0.004, shootStep: 0.002, shootMul: 1, // 敌人开火概率
@@ -927,11 +982,11 @@
       typeShift: 0,                                // 敌兵种类解锁提前量
       debuffLevel: 5, debuffMul: 1, debuffBonus: 0, // 关卡惩罚起始关/概率/个数
       dropRate: 0.3, pickupFactor: 1,              // 击杀掉落率 / 地面道具间隔倍率
-      bossHpMul: 1,
+      bossHpMul: 1, shieldMul: 1,                  // 敌人护盾出现概率倍率
     },
     hard: {
       label: '困难', lives: 1, maxHP: 3,
-      totalBase: 26, totalStep: 3, bossBonus: 4,
+      totalBase: 26, totalStep: 2, bossBonus: 4,
       spawnTimer: 110, spawnFloor: 46,
       enemySpeedMul: 1.18, enemyBulletSpeed: 2.9,
       shootBase: 0.006, shootStep: 0.0026, shootMul: 1.5,
@@ -939,20 +994,40 @@
       typeShift: 2,
       debuffLevel: 3, debuffMul: 1.6, debuffBonus: 1,
       dropRate: 0.17, pickupFactor: 1.6,
-      bossHpMul: 1.35,
+      bossHpMul: 1.35, shieldMul: 1.35,
     },
   };
   function diff(){ return hardMode ? DIFFS.hard : DIFFS.normal; }
+  // ===== 三种可玩坦克 =====
+  // speed 移速 / bulletSpeed 弹速 / cd 射击冷却（ticks）/ dmg 单发伤害 / pierce 破盾力
+  // pierce 大于护盾层数时，溢出的部分直接打本体 —— 这是重炮"一炮破盾"的依据
+  const PLAYER_TANKS = {
+    standard: { key:'standard', name:'标准坦克', short:'标准', color:'#6cff6c',
+      speed:1.2,  bulletSpeed:2.4, cd:28, dmg:1, pierce:1, blurb:'均衡' },
+    heavy:    { key:'heavy',    name:'重炮坦克', short:'重炮', color:'#ffb14d',
+      speed:0.82, bulletSpeed:2.2, cd:46, dmg:2, pierce:2, blurb:'破盾' },
+    scout:    { key:'scout',    name:'迅捷坦克', short:'迅捷', color:'#69e6ff',
+      speed:1.74, bulletSpeed:2.9, cd:15, dmg:1, pierce:1, blurb:'快射' },
+  };
+  let playerTank = 'standard';
+  function tankSpec(){ return PLAYER_TANKS[playerTank] || PLAYER_TANKS.standard; }
   // 本关需生成的敌军总数（Boss 关 / 生存模式有独立公式）
   function enemiesForLevel(lv){
     if (lv % 5 === 0) return 10 + lv + diff().bossBonus;
     if (endlessMode) return 15 + lv * 2;
-    return diff().totalBase + (lv - 1) * diff().totalStep;
+    return Math.round(diff().totalBase + (lv - 1) * diff().totalStep);
   }
-  // 同屏敌军软上限：早期压住"雪崩"，随关卡缓慢放开（原版无上限，敌人会越积越多把基地淹掉）
+  // 同屏敌军软上限：后期不再靠堆人数，改为给敌人加护盾（见 enemyShieldFor）
   function maxAliveFor(lv){
-    const cap = 3 + Math.floor(lv / 2) + (hardMode ? 1 : 0);
-    return Math.min(cap, endlessMode ? 10 : 8);
+    const cap = 2 + Math.floor(lv / 3) + (hardMode ? 1 : 0);
+    return Math.min(cap, endlessMode ? 8 : 6);
+  }
+  // 后期敌人的护盾层数：第 6 关起按概率出现，第 13 关起可能 2 层
+  function enemyShieldFor(lv){
+    if (lv < 6) return 0;
+    const chance = Math.min(0.8, 0.20 + (lv - 6) * 0.06) * diff().shieldMul;
+    if (Math.random() >= chance) return 0;
+    return lv >= 13 ? 2 : 1;
   }
   // 主菜单显示最高分（HTML 初始文案由 JS 补上）
   function renderMenuHighScore(){
@@ -1312,7 +1387,7 @@
   }
 
   function makeTank(isPlayer, enemyType) {
-    const spd = isPlayer ? (1.2 + permSpeed * 0.15) : (0.4 + Math.min(level-1, 6) * 0.065) * diff().enemySpeedMul;
+    const spd = isPlayer ? (tankSpec().speed + permSpeed * 0.15) : (0.4 + Math.min(level-1, 6) * 0.065) * diff().enemySpeedMul;
     const t = {
       isPlayer,
       x: 0, y: 0, w: TILE, h: TILE,
@@ -1320,9 +1395,10 @@
       speed: spd,
       cooldown: 0,
       alive: true,
-      color: isPlayer ? '#6cff6c' : '#ff6c6c',
+      color: isPlayer ? tankSpec().color : '#ff6c6c',
       aiTimer: 0, aiDir: null,
       hp: 1, rapid: false,
+      shield: 0, maxShield: 0,
       type: 'normal'
     };
     if (!isPlayer && enemyType){
@@ -1570,6 +1646,8 @@
       const e = makeTank(false, enemyType);
       e.x = x; e.y = spotsY;
       e.dir = 'down';
+      e.shield = enemyShieldFor(level);   // 后期敌人带护盾，替代单纯堆数量
+      e.maxShield = e.shield;
       enemies.push(e);
       e.invTimer = 60; // 1秒出生无敌
       enemiesSpawned++; // 计数本关已生成
@@ -1732,9 +1810,12 @@
     if (isLaser) laserCharges--;
     if (isTriple) tripleCharges--;
     if (isAp) apCharges--;
-    t.cooldown = isPlayer ? (isLaser ? 14 : 28) : isAlly ? 30 : (rapid ? diff().rapidCd : diff().normalCd);
+    const spec = isPlayer ? tankSpec() : null;   // 玩家坦克决定冷却/弹速/伤害/破盾
+    t.cooldown = isPlayer
+      ? (isLaser ? Math.max(10, Math.round(spec.cd * 0.5)) : spec.cd)
+      : isAlly ? 30 : (rapid ? diff().rapidCd : diff().normalCd);
     const d = DIR[t.dir];
-    const speed = isPlayer ? ((bulletUpgraded || isLaser) ? 4.5 : 2.4) : isAlly ? 3.2 : diff().enemyBulletSpeed;
+    const speed = isPlayer ? ((bulletUpgraded || isLaser) ? 4.5 : spec.bulletSpeed) : isAlly ? 3.2 : diff().enemyBulletSpeed;
     const s = isPlayer && (bulletUpgraded || isLaser) ? 5 : 4;
     const perp = d.x ? {x:0,y:-1} : {x:1,y:0};
     const cx = t.x + (t.w - s) / 2, cy = t.y + (t.h - s) / 2;
@@ -1758,7 +1839,9 @@
         vx, vy,
         from: (isPlayer || isAlly) ? 'p' : 'e',
         w:s, h:s,
-        ap: isAp   // 穿甲标记（打钢墙不消耗）
+        ap: isAp,  // 穿甲标记（打钢墙不消耗）
+        dmg: isPlayer ? spec.dmg : 1,
+        pierce: isPlayer ? spec.pierce : 1
       });
     }
     if (allies.includes(t)) allyShotsFired++;
@@ -2470,7 +2553,18 @@
         }
         for (const e of enemies) if (e.alive && rectsOverlap({x:b.x,y:b.y,w:b.w,h:b.h},e)){
           if (e.invTimer > 0) { b.dead=true; explode(b.x,b.y,'#888'); break; }
-          e.hp--;
+          // 护盾先吃破盾力，溢出的部分才伤本体（重炮 pierce 2 能一炮破盾带伤）
+          let pierce = b.pierce || 1;
+          if (e.shield > 0){
+            const used = Math.min(e.shield, pierce);
+            e.shield -= used;
+            pierce -= used;
+            explode(b.x, b.y, '#69e6ff');
+            if (e.shield <= 0) addFloater(e.x + 8, e.y - 2, '护盾破碎', '#69e6ff', 9);
+            else addFloater(e.x + 8, e.y - 2, '盾 ' + e.shield, '#8fd4ff', 9);
+            sfx.hit();
+          }
+          if (pierce > 0) e.hp -= (b.dmg || 1);
           if (e.hp <= 0){ enemiesKilledThisLevel++; e.alive=false; explode(e.x+e.w/2,e.y+e.h/2,e.color); const pts = addScore(100); addFloater(e.x+8, e.y-2, '+'+pts, '#ffd24d', 10); spawnDrop(e); hitStopTimer = 4;
             if (e.type === 'splitter') splitEnemy(e); // 分裂
             totalKills++;
@@ -2929,7 +3023,7 @@
       emptyMap();
       spawnPlayer(false);
       // 开局先出一批（按等级递增），之后按时间节奏持续生成
-      const count = Math.min(2 + Math.floor(level / 2) + (hardMode ? 1 : 0), hardMode ? 7 : 6);
+      const count = Math.min(2 + Math.floor(level / 3) + (hardMode ? 1 : 0), maxAliveFor(level));
       for (let i=0;i<count;i++) spawnEnemy();
     }
     ensureAllyTeam();   // 队友随关卡增加（第 3 关起 1 个，之后每 3 关 +1）
@@ -3227,6 +3321,28 @@
   }
 
   // ===== 坦克（卡通机甲风）=====
+  // 敌人护盾：六边形能量环，层数越多圈越外
+  function drawShieldRing(e){
+    const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 200 + e.x * 0.7);
+    for (let k = 0; k < e.shield; k++){
+      const rad = 9.2 + k * 2.6 + pulse * 0.5;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++){
+        const a = -Math.PI / 2 + i * Math.PI / 3 + pulse * 0.10;
+        const px = cx + Math.cos(a) * rad;
+        const py = cy + Math.sin(a) * rad * 0.94;
+        if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(105,230,255,.06)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(105,230,255,' + (0.55 + pulse * 0.3).toFixed(3) + ')';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
   function drawTank(t){
     const base = t.color || '#6cff6c';
     const cHi = mix(base, '#ffffff', 0.6);
@@ -3527,7 +3643,7 @@
         drawTank(ally);
       }
     }
-    for (const e of enemies) if (e.alive) drawTank(e);
+    for (const e of enemies) if (e.alive){ drawTank(e); if (e.shield > 0) drawShieldRing(e); }
     if (boss && boss.alive) drawBoss(boss);
 
     // 冰冻视觉效果
@@ -3761,9 +3877,10 @@
     playerHP=D.maxHP; playerMaxHP=D.maxHP; waveSpawned=false; airdropTimer=1200;
     document.getElementById('levelLabel').textContent = endlessMode ? '波次' : '关卡';
     document.getElementById('diffRow').style.display = hardMode ? 'flex' : 'none';
+    document.getElementById('wpnTank').textContent = tankSpec().short;
     emptyMap(); spawnPlayer();
     // 开局先出一批
-    if (!endlessMode) { const count = Math.min(2 + Math.floor(level / 2) + (hardMode ? 1 : 0), hardMode ? 7 : 6); for (let i=0;i<count;i++) spawnEnemy(); }
+    if (!endlessMode) { const count = Math.min(2 + Math.floor(level / 3) + (hardMode ? 1 : 0), maxAliveFor(level)); for (let i=0;i<count;i++) spawnEnemy(); }
     ensureAllyTeam();
     spawnTimer = endlessMode ? 150 : diff().spawnTimer; // 开局生成后开始计时下一次
     levelIntroTimer = 90; // 开局过场
@@ -3784,8 +3901,30 @@
   btnEndless.addEventListener('click', ()=>startGame('endless'));
   document.getElementById('btnHard').addEventListener('click', ()=>startGame('hard'));
 
+  // 坦克选择：只影响下一局玩家（包括 P2），队友与敌人不受影响
+  const tankPickBtns = Array.from(document.querySelectorAll('#tankPicks .pick'));
+  for (const b of tankPickBtns){
+    b.addEventListener('click', () => {
+      playerTank = PLAYER_TANKS[b.dataset.tank] ? b.dataset.tank : 'standard';
+      for (const o of tankPickBtns) o.classList.toggle('on', o === b);
+      b.blur();
+    });
+  }
+
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.27', date: '2026-10-18',
+      tags: [['new','坦克'],['new','敌人']],
+      desc: [
+        '新增三种可选坦克：标准（均衡）、重炮（单发伤害 2、能一炮破盾，但移速和装填都慢）、迅捷（移速 1.74、装填快到 15 帧，但单发伤害低），在菜单上点一下就能换',
+        '新增敌人护盾：第 6 关起按概率带盾，第 13 关起可能出现两层，护盾是敌人外面的一圈六边形能量环',
+        '护盾先吃子弹的「破盾力」，打碎之前本体不掉血；重炮破盾力 2，正好一炮打掉一层盾并把伤害灌进本体，标准和迅捷破盾力 1，得先打碎盾',
+        '后期不再靠堆人数：同屏敌军上限从「第 1 关 3 个、最多 8 个」收到「第 1 关 2 个、最多 6 个」封顶',
+        '每关敌军总量增量从 +2 降到 +1.5，第 14 关从 46 个降到 38 个；开局同时登场的敌人也少了一个',
+        '面板武器栏新增「坦克」一行，游戏中能看到当前用的是哪种坦克；新增 3 个回归用例',
+      ],
+    },
     {
       ver: 'v1.26', date: '2026-10-18',
       tags: [['new','视觉'],['other','界面']],
@@ -4118,7 +4257,7 @@
     } else {
       emptyMap();
       spawnPlayer();
-      const count = Math.min(2 + Math.floor(level / 2) + (hardMode ? 1 : 0), hardMode ? 7 : 6);
+      const count = Math.min(2 + Math.floor(level / 3) + (hardMode ? 1 : 0), maxAliveFor(level));
       for (let i=0;i<count;i++) spawnEnemy();
     }
     ensureAllyTeam();
@@ -4555,6 +4694,51 @@
       const e = makeTank(false, { hp:1, rapid:false, type: type || 'normal' });
       return e.speed;
     },
+    // 坦克选择 / 敌人护盾测试钩子
+    get playerTankKey() { return playerTank; },
+    selectTank(k) {
+      playerTank = PLAYER_TANKS[k] ? k : 'standard';
+      for (const b of document.querySelectorAll('#tankPicks .pick')){
+        b.classList.toggle('on', b.dataset.tank === playerTank);
+      }
+      return playerTank;
+    },
+    get tankStats() {
+      const s = tankSpec();
+      return { key: s.key, name: s.name, speed: s.speed, cd: s.cd, dmg: s.dmg, pierce: s.pierce, bulletSpeed: s.bulletSpeed };
+    },
+    get playerSpeed() { return player ? player.speed : -1; },
+    get enemyShieldForLevel() { return enemyShieldFor(level); },
+    get shieldedEnemies() { return enemies.filter(e => e.alive && e.shield > 0).length; },
+    // 定向构造一个带盾敌人用于断言护盾逻辑（用 tag 查找，enemies 数组每帧会过滤死亡项）
+    spawnShieldedEnemy(shield, hp) {
+      enemies = [];
+      // 清出一块空地，避免子弹先撞地形
+      for (let r = 5; r <= 8; r++) for (let c = 5; c <= 8; c++) if (map[r][c] === 1 || map[r][c] === 2) map[r][c] = 0;
+      mapDirty = true;
+      const e = makeTank(false, { hp: hp || 1, rapid:false, type:'normal' });
+      e.x = 6 * TILE; e.y = 6 * TILE;
+      e.shield = shield || 0; e.maxShield = e.shield;
+      e.invTimer = 0;
+      e.aiTimer = 1e9;            // 别乱跑，方便断言
+      e.testTag = 'shieldprobe';
+      enemies.push(e);
+      return { x: e.x, y: e.y, shield: e.shield, hp: e.hp };
+    },
+    enemyState(tag) {
+      const e = enemies.find(x => x.testTag === (tag || 'shieldprobe'));
+      return e ? { shield: e.shield || 0, hp: e.hp, alive: e.alive } : null;
+    },
+    testBullet(x, y, opts) {
+      const o = opts || {};
+      bullets.push({ x, y, vx: o.vx || 0, vy: o.vy === undefined ? -3 : o.vy, from: 'p', w: 4, h: 4,
+        dmg: o.dmg || 1, pierce: o.pierce || 1, ap: false });
+      return bullets.length;
+    },
+    get enemiesTotalNow() { return enemiesTotal; },
+    get maxAliveNow() { return maxAliveFor(level); },
+    enemiesFor(lv) { return enemiesForLevel(lv); },
+    maxAliveAt(lv) { return maxAliveFor(lv); },
   };
 })();
 </script>

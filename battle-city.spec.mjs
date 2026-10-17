@@ -397,7 +397,7 @@ test('P: hard mode starts with scarce resources and a bigger enemy quota', async
   expect(hard.on).toBe(true);
   expect(hard.maxHP).toBe(3);
   expect(hard.hp).toBe(3);
-  expect(hard.total).toBe(26);          // 普通模式是 20
+  expect(hard.total).toBe(26);          // 普通模式是 18
   expect(hard.speed).toBeGreaterThan(0.45); // 普通模式基础 0.4
   // 开局直接放出的敌兵比普通模式多（普通模式 2 个）
   await page.waitForTimeout(400);
@@ -422,7 +422,7 @@ test('Q: leaving hard mode restores normal difficulty values', async ({ page }) 
   }));
   expect(n.on).toBe(false);
   expect(n.maxHP).toBe(5);
-  expect(n.total).toBe(20);
+  expect(n.total).toBe(18);
   expect(n.lives).toBe(3);
   expect(n.speed).toBeCloseTo(0.4, 3);
 });
@@ -530,4 +530,100 @@ test('U: boss keeps moving and never sits inside a wall', async ({ page }) => {
   expect(alive.some(s => !s.canGo)).toBe(false);
   const unique = new Set(alive.map(s => s.x + ',' + s.y));
   expect(unique.size).toBeGreaterThan(alive.length / 2);
+});
+
+test('V: picking a tank changes speed, damage and fire cadence', async ({ page }) => {
+  // 三种坦克的参数必须真的不同
+  const specs = await page.evaluate(() => {
+    const t = window.__test;
+    const out = {};
+    for (const k of ['standard', 'heavy', 'scout']) { t.selectTank(k); out[k] = t.tankStats; }
+    return out;
+  });
+  expect(specs.standard.speed).toBeCloseTo(1.2, 2);
+  expect(specs.heavy.speed).toBeLessThan(specs.standard.speed);      // 重炮更慢
+  expect(specs.scout.speed).toBeGreaterThan(specs.standard.speed);   // 迅捷更快
+  expect(specs.heavy.dmg).toBeGreaterThan(specs.standard.dmg);       // 重炮伤害高
+  expect(specs.heavy.pierce).toBeGreaterThan(specs.standard.pierce); // 重炮能破盾
+  expect(specs.scout.cd).toBeLessThan(specs.standard.cd);            // 迅捷射速高
+  expect(specs.scout.dmg).toBeLessThan(specs.heavy.dmg);             // 迅捷单发伤害低
+
+  // 选择结果要落到实际玩家身上，并显示在面板里
+  await page.click('#tankPicks .pick[data-tank="heavy"]');
+  await expect(page.locator('#tankPicks .pick.on')).toHaveAttribute('data-tank', 'heavy');
+  await page.click('#btn1p');
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => window.__test.playerSpeed)).toBeCloseTo(specs.heavy.speed, 2);
+  await expect(page.locator('#wpnTank')).toHaveText('重炮');
+
+  // 换一个再开一局，玩家速度要跟着变
+  await page.keyboard.press('m');
+  await page.waitForTimeout(300);
+  await page.click('#tankPicks .pick[data-tank="scout"]');
+  await page.click('#btn1p');
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => window.__test.playerSpeed)).toBeCloseTo(specs.scout.speed, 2);
+  await expect(page.locator('#wpnTank')).toHaveText('迅捷');
+});
+
+test('W: enemy shield absorbs a hit before hp is lost', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(2400);   // 等开局过场结束，子弹才会更新
+
+  const res = await page.evaluate(async () => {
+    const t = window.__test;
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const out = {};
+    // 普通弹（破盾力 1）打 1 层盾：盾碎，本体不掉血
+    let a = t.spawnShieldedEnemy(1, 1);
+    t.testBullet(a.x + 6, a.y + 6, { vy: 0, dmg: 1, pierce: 1 });
+    await wait(200);
+    out.standard = t.enemyState();
+    // 重炮弹（破盾力 2、伤害 2）打 1 层盾：碎盾 + 本体 -2
+    let b = t.spawnShieldedEnemy(1, 3);
+    t.testBullet(b.x + 6, b.y + 6, { vy: 0, dmg: 2, pierce: 2 });
+    await wait(200);
+    out.heavy = t.enemyState();
+    // 普通弹打 2 层盾：只掉一层
+    let c = t.spawnShieldedEnemy(2, 3);
+    t.testBullet(c.x + 6, c.y + 6, { vy: 0, dmg: 1, pierce: 1 });
+    await wait(200);
+    out.twoLayer = t.enemyState();
+    return out;
+  });
+
+  expect(res.standard).toEqual({ shield: 0, hp: 1, alive: true });
+  expect(res.heavy).toEqual({ shield: 0, hp: 1, alive: true });
+  expect(res.twoLayer).toEqual({ shield: 1, hp: 3, alive: true });
+});
+
+test('X: later levels add shields instead of piling up enemies', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(400);
+  const data = await page.evaluate(() => {
+    const t = window.__test;
+    // 同屏上限：随关卡增长但有硬顶
+    const maxAlive = [1, 7, 13, 20, 30].map(lv => t.maxAliveAt(lv));
+    // 敌人总量：后期不再翻倍式膨胀
+    const totals = [1, 6, 10, 14].map(lv => t.enemiesFor(lv));
+    // 护盾出现概率：早期为 0，后期接近必定
+    const sample = lv => {
+      t.setLevel(lv);
+      let hit = 0;
+      for (let i = 0; i < 200; i++) if (t.enemyShieldForLevel > 0) hit++;
+      return hit / 200;
+    };
+    return { maxAlive, totals, early: sample(4), mid: sample(9), late: sample(16) };
+  });
+  // 同屏上限：1 关 2 个 -> 后期封顶 6，不会无限堆
+  expect(data.maxAlive[0]).toBe(2);
+  expect(Math.max(...data.maxAlive)).toBe(6);
+  expect(data.maxAlive[data.maxAlive.length - 1]).toBe(6);
+  // 早期无护盾，中期开始出现，后期几乎人人带盾
+  expect(data.early).toBe(0);
+  expect(data.mid).toBeGreaterThan(0.15);
+  expect(data.late).toBeGreaterThan(0.6);
+  // 总量随关卡缓增（旧版每关 +2，第 14 关就有 46）
+  expect(data.totals[0]).toBeLessThan(20);
+  expect(data.totals[data.totals.length - 1]).toBeLessThan(42);
 });
