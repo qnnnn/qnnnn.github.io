@@ -1,12 +1,12 @@
 # AGENTS.md — Battle City (坦克大战)
 
-Single-file HTML5 Canvas game (~208KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
+Single-file HTML5 Canvas game (~193KB in `index.html`). No build, no bundler, no dependencies. Open `index.html` in a browser to play.
 
 ## Commands
 
 | Command | What |
 |---------|------|
-| `npx playwright test` | Run all 41 tests headless |
+| `npx playwright test` | Run all 42 tests headless |
 | `npx playwright test --headed` | Run with browser visible |
 | `npx playwright test -g "test name"` | Run single test by name |
 
@@ -19,7 +19,7 @@ Single-file HTML5 Canvas game (~208KB in `index.html`). No build, no bundler, no
 - Tests load the game via `file://` protocol — no server needed.
 - Config: `playwright.config.mjs` (headless, 800×800 viewport, 30s timeout). If Playwright's bundled Chromium is not installed (e.g. offline, so `npx playwright install` can't run), the config automatically falls back to the system Google Chrome via `channel: 'chrome'`.
 - Test file: `battle-city.spec.mjs` — ESM (`.mjs`) despite `"type": "commonjs"` in `package.json`.
-- All 41 tests are **flat top-level** (no `describe()` blocks).
+- All 42 tests are **flat top-level** (no `describe()` blocks).
 - Tests mix `page.waitForTimeout()` (time-based waits for game state) with explicit Playwright assertions. If a test is flaky, increasing these timeouts is the typical fix — **but not when the flake is a read race.** When a test spawns an entity that can die almost immediately, the "before" baseline (`score`, `killedCount`) must be read inside the *same* `page.evaluate()` as the spawn. A separate round-trip read can land after the death frame, so the assertion overshoots and no amount of extra waiting helps. Tests N and O hit this; see `battle-city.spec.mjs` for the atomic-baseline pattern.
 - Newer tests use the `window.__test` debug API (e.g. `triggerPlayerDeath`, `applyBuff`, `addLevelDebuff`, `hitPlayer`, `setBaseHp`) to set up deterministic game states.
 - `node_modules/` and `test-results/` are gitignored.
@@ -65,17 +65,33 @@ Late-game pressure comes from **shields, not headcount** (`enemyShieldFor(lv)`).
 
 Three selectable player tanks live in `PLAYER_TANKS` (near `DIFFS`), chosen on the menu (`#tankPicks`, persisted in `playerTank`, read through `tankSpec()`):
 
-| key | speed | cd | dmg | pierce | role |
-|-----|-------|----|-----|--------|------|
-| `standard` | 1.2 | 28 | 1 | 1 | baseline |
-| `heavy` | 0.82 | 46 | 2 | 2 | breaks a shield layer *and* damages the hull in one shot |
-| `scout` | 1.74 | 15 | 1 | 1 | fastest movement and fire rate, lowest per-shot damage |
+| key | build | speed | cd | dmg | pierce | role |
+|-----|-------|-------|----|-----|--------|------|
+| `standard` | medium | 1.2 | 28 | 2 | 1 | baseline, two shots kill a light tank |
+| `heavy` | heavy | 0.82 | 46 | 4 | 2 | breaks a shield layer *and* deals 4 damage to the hull in one shot |
+| `scout` | light | 1.5 | 18 | 1 | 1 | fastest movement and fire rate, lowest per-shot damage |
+
+`dmg` is measured in **enemy hull points**, not shots: a light enemy has 2 hp, so `standard` kills it in one hit and `scout` needs exactly two. Test `Y` asserts that `scout.dmg * 2 === light.hp`.
 
 `makeTank(isPlayer)` reads the speed and colour from `tankSpec()`, and `shoot()` reads cooldown / bullet speed / `dmg` / `pierce`. Both the player and P2 use the selected tank; allies (`spawnAlly`) override speed and colour so the AI squad is unaffected, and enemies never read `PLAYER_TANKS`. The panel shows the current tank in `#wpnTank`.
 
 ## Enemy shields
 
-`enemyShieldFor(lv)` rolls a shield layer count per spawn: none before level 6, then a rising chance (capped at 80%, multiplied by `diff().shieldMul`), with a second layer from level 13. Shields render as the hexagon ring in `drawShieldRing()`.
+`enemyShieldFor(lv)` rolls a shield layer count per spawn: none before level 6, then a rising chance (capped at 80%, multiplied by `diff().shieldMul`), with a second layer from level 13. Shields render as the hexagon ring in `drawShieldRing()` (`rad = 9.2 + k * 2.6` — the ring must sit *outside* the 16px hull, so keep the base radius above 8).
+
+## Enemy builds (light / medium / heavy)
+
+`ENEMY_KINDS` gives each enemy tier its hp and a speed multiplier, and `TANK_BUILD` maps a `build` key to the drawing dimensions:
+
+| kind | hp | speed | build (bodyW × bodyH) | notes |
+|------|----|-------|------------------------|-------|
+| `light` | 2 | ×1.00 | 6.4 × 11.6 | narrow hull, thin barrel |
+| `medium` | 4 | ×1.00 | 8.8 × 13.8 | the old default |
+| `heavy` | 8 | ×0.66 | 11.2 × 15.2 | widest hull, armoured skirts, three road wheels |
+
+`spawnEnemy()` assigns a `kind` per type table entry (never raw `hp:`), `makeTank()` sets `t.kind` / `t.build` / `t.hp` / `t.maxHp`, and `drawTank(t)` reads every dimension from `buildOf(t)` — so a bigger enemy is only a table edit. `TYPE_SPEED_MUL` (`scout` 1.5, `suicide` 1.25, `splitter` 1.1) multiplies on top of the kind's `speedMul`.
+
+Damaged enemies draw a small bar above the hull via `drawEnemyHp(e)` (green → amber → red by remaining fraction); full-hp enemies show nothing. Do not fall back to a single shared tank size — test `Y` guards the differences.
 
 Damage order matters: a bullet first spends its `pierce` on the shield, and only the leftover `pierce` applies `dmg` to `e.hp`. That is why `heavy` (pierce 2, dmg 2) one-shots a single-layer shield while `standard`/`scout` (pierce 1) need two hits. Test `W` asserts all three cases — keep the "overflow pierce hits the hull" behaviour when touching the bullet-vs-enemy block.
 

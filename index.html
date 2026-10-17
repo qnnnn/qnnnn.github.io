@@ -1016,19 +1016,37 @@
   // ===== 三种可玩坦克 =====
   // speed 移速 / bulletSpeed 弹速 / cd 射击冷却（ticks）/ dmg 单发伤害 / pierce 破盾力
   // pierce 大于护盾层数时，溢出的部分直接打本体 —— 这是重炮"一炮破盾"的依据
+  // build 决定绘制用的车体尺寸（见 TANK_BUILD），敌人也按 kind 用同一套
   const PLAYER_TANKS = {
-    standard: { key:'standard', name:'标准坦克', short:'标准', color:'#6cff6c',
-      speed:1.2,  bulletSpeed:2.4, cd:28, dmg:1, pierce:1, blurb:'均衡' },
-    heavy:    { key:'heavy',    name:'重炮坦克', short:'重炮', color:'#ffb14d',
-      speed:0.82, bulletSpeed:2.2, cd:46, dmg:2, pierce:2, blurb:'破盾' },
-    scout:    { key:'scout',    name:'迅捷坦克', short:'迅捷', color:'#69e6ff',
-      speed:1.74, bulletSpeed:2.9, cd:15, dmg:1, pierce:1, blurb:'快射' },
+    standard: { key:'standard', name:'标准坦克', short:'标准', color:'#6cff6c', build:'medium',
+      speed:1.2,  bulletSpeed:2.4, cd:28, dmg:2, pierce:1, blurb:'均衡' },
+    heavy:    { key:'heavy',    name:'重炮坦克', short:'重炮', color:'#ffb14d', build:'heavy',
+      speed:0.82, bulletSpeed:2.2, cd:46, dmg:4, pierce:2, blurb:'破盾' },
+    scout:    { key:'scout',    name:'迅捷坦克', short:'迅捷', color:'#69e6ff', build:'light',
+      speed:1.5,  bulletSpeed:2.9, cd:18, dmg:1, pierce:1, blurb:'快射' },
   };
   let playerTank = 'standard';
   function tankSpec(){ return PLAYER_TANKS[playerTank] || PLAYER_TANKS.standard; }
+  // ===== 敌人三档体格：轻型 / 中型 / 重型 =====
+  // 血量越厚体格越壮、走得越慢，绘制时按 build 换一套车体尺寸（见 TANK_BUILD）
+  // 玩家的 dmg 2 打轻型一发、中型两发、重型四发；重炮 dmg 4、迅捷 dmg 1
+  const ENEMY_KINDS = {
+    light:  { hp: 2, speedMul: 1.00, build: 'light',  label: '轻型' },
+    medium: { hp: 4, speedMul: 1.00, build: 'medium', label: '中型' },
+    heavy:  { hp: 8, speedMul: 0.66, build: 'heavy',  label: '重型' },
+  };
+  // 车体绘制尺寸表：同一套 drawTank 按 build 换参数（单位是像素，格子 16px）
+  const TANK_BUILD = {
+    light:  { bodyW: 6.4,  bodyH: 11.6, treadW: 3.0, treadX: 3.9, turretR: 2.4,
+              barrelW: 1.3, barrelTop: -8.4, muzzleW: 2.0, muzzleTop: -9.5, shadowW: 5.9, skirt: 0 },
+    medium: { bodyW: 8.8,  bodyH: 13.8, treadW: 4.6, treadX: 5.3, turretR: 3.3,
+              barrelW: 1.8, barrelTop: -9.8, muzzleW: 3.0, muzzleTop: -11.0, shadowW: 7.8, skirt: 0 },
+    heavy:  { bodyW: 11.2, bodyH: 15.2, treadW: 5.0, treadX: 5.6, turretR: 4.4,
+              barrelW: 2.8, barrelTop: -10.6, muzzleW: 4.4, muzzleTop: -12.2, shadowW: 9.8, skirt: 1 },
+  };
+  function buildOf(t){ return TANK_BUILD[t.build] || TANK_BUILD.medium; }
   // 本关需生成的敌军总数（Boss 关 / 生存模式有独立公式）
-  function enemiesForLevel(lv){
-    if (lv % 5 === 0) return 10 + lv + diff().bossBonus;
+  function enemiesForLevel(lv){    if (lv % 5 === 0) return 10 + lv + diff().bossBonus;
     if (endlessMode) return 15 + lv * 2;
     return Math.round(diff().totalBase + (lv - 1) * diff().totalStep);
   }
@@ -1401,6 +1419,8 @@
     shake(6, 2);
   }
 
+  // 各兵种的速度修正（体格倍率之外再乘一次）：侦察快、自爆快、分裂稍快
+  const TYPE_SPEED_MUL = { scout: 1.5, suicide: 1.25, splitter: 1.1 };
   function makeTank(isPlayer, enemyType) {
     const spd = isPlayer ? (tankSpec().speed + permSpeed * 0.15) : (0.4 + Math.min(level-1, 6) * 0.065) * diff().enemySpeedMul;
     const t = {
@@ -1412,19 +1432,29 @@
       alive: true,
       color: isPlayer ? tankSpec().color : '#ff6c6c',
       aiTimer: 0, aiDir: null,
-      hp: 1, rapid: false,
+      hp: 1, maxHp: 1, rapid: false,
       shield: 0, maxShield: 0,
+      build: isPlayer ? tankSpec().build : 'medium',
+      kind: 'medium',
       type: 'normal'
     };
     if (!isPlayer && enemyType){
-      t.hp = enemyType.hp || 1;
+      const kind = ENEMY_KINDS[enemyType.kind || 'medium'] || ENEMY_KINDS.medium;
+      t.kind = enemyType.kind || 'medium';
+      t.build = kind.build;
+      t.hp = kind.hp;
+      t.maxHp = kind.hp;
+      t.speed *= kind.speedMul;
       t.rapid = enemyType.rapid || false;
       t.type = enemyType.type || 'normal';
-      if (t.type === 'scout'){ t.color = '#dddd44'; t.speed *= 1.6; }
-      else if (t.type === 'suicide'){ t.color = '#ff2222'; t.speed *= 1.3; }
-      else if (t.type === 'armored' || t.type === 'elite') t.color = '#cc4444';
+      t.speed *= TYPE_SPEED_MUL[t.type] || 1;
+      if (t.type === 'scout') t.color = '#dddd44';
+      else if (t.type === 'suicide') t.color = '#ff2222';
+      else if (t.type === 'armored') t.color = '#cc4444';
+      else if (t.type === 'elite') t.color = '#8a5cf0';
+      else if (t.type === 'heavy') t.color = '#a8442f';
       else if (t.type === 'rapid') t.color = '#ff44aa';
-      else if (t.type === 'splitter'){ t.color = '#44ffaa'; t.speed *= 1.15; }
+      else if (t.type === 'splitter') t.color = '#44ffaa';
     }
     return t;
   }
@@ -1600,7 +1630,7 @@
 
   // 分裂者：死亡时分裂成 2 个小分裂体（快速小兵）
   function splitEnemy(e){
-    const mini = makeTank(false, {hp:1, rapid:false, type:'normal'});
+    const mini = makeTank(false, {kind:'light', rapid:false, type:'normal'});
     mini.color = '#66ffcc';
     mini.speed = 1.1;
     const spots = [[-TILE,0],[TILE,0],[0,-TILE],[0,TILE]];
@@ -1609,7 +1639,7 @@
       if (spawned >= 2) break;
       const nx = e.x + ox, ny = e.y + oy;
       if (nx>=0 && ny>=0 && nx+TILE<=W && ny+TILE<=H && canMove(mini, nx, ny)){
-        const m = makeTank(false, {hp:1, rapid:false, type:'normal'});
+        const m = makeTank(false, {kind:'light', rapid:false, type:'normal'});
         m.color = '#66ffcc';
         m.speed = 1.1;
         m.x = nx; m.y = ny;
@@ -1627,34 +1657,37 @@
     const spotsY = 2*TILE;
     // 随机打乱尝试
     for (let i=spotsX.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [spotsX[i],spotsX[j]]=[spotsX[j],spotsX[i]]; }
-    // 根据等级选择敌人类型（困难模式用 level+typeShift，敌兵种类提前登场）
-    let enemyType = {hp:1, rapid:false, type:'normal'};
+    // 根据等级选择敌人种类（困难模式用 level+typeShift，敌兵种类提前登场）
+    // kind 决定体格与血量：light 轻型 / medium 中型 / heavy 重型（越重越慢越厚）
+    let enemyType = {kind:'light', rapid:false, type:'normal'};
     const r = Math.random();
     const lv = level + diff().typeShift;
     if (lv >= 7) {
-      if (r < 0.30) enemyType = {hp:3, rapid:true, type:'elite'};
-      else if (r < 0.42) enemyType = {hp:2, rapid:true, type:'rapid'};
-      else if (r < 0.52) enemyType = {hp:1, rapid:false, type:'suicide'};
-      else if (r < 0.63) enemyType = {hp:2, rapid:false, type:'armored'};
-      else if (r < 0.72) enemyType = {hp:1, rapid:false, type:'scout'};
-      else if (r < 0.85) enemyType = {hp:1, rapid:false, type:'splitter'};
+      if (r < 0.24) enemyType = {kind:'heavy', rapid:true, type:'elite'};
+      else if (r < 0.36) enemyType = {kind:'medium', rapid:true, type:'rapid'};
+      else if (r < 0.48) enemyType = {kind:'light', rapid:false, type:'suicide'};
+      else if (r < 0.60) enemyType = {kind:'heavy', rapid:false, type:'heavy'};
+      else if (r < 0.72) enemyType = {kind:'medium', rapid:false, type:'armored'};
+      else if (r < 0.84) enemyType = {kind:'light', rapid:false, type:'scout'};
+      else if (r < 0.94) enemyType = {kind:'light', rapid:false, type:'splitter'};
     } else if (lv >= 5) {
-      if (r < 0.20) enemyType = {hp:2, rapid:true, type:'rapid'};
-      else if (r < 0.32) enemyType = {hp:1, rapid:false, type:'suicide'};
-      else if (r < 0.48) enemyType = {hp:2, rapid:false, type:'armored'};
-      else if (r < 0.58) enemyType = {hp:1, rapid:false, type:'scout'};
-      else if (r < 0.70) enemyType = {hp:1, rapid:false, type:'splitter'};
+      if (r < 0.14) enemyType = {kind:'heavy', rapid:false, type:'heavy'};
+      else if (r < 0.28) enemyType = {kind:'medium', rapid:true, type:'rapid'};
+      else if (r < 0.40) enemyType = {kind:'light', rapid:false, type:'suicide'};
+      else if (r < 0.56) enemyType = {kind:'medium', rapid:false, type:'armored'};
+      else if (r < 0.68) enemyType = {kind:'light', rapid:false, type:'scout'};
+      else if (r < 0.80) enemyType = {kind:'light', rapid:false, type:'splitter'};
     } else if (lv >= 4) {
-      if (r < 0.18) enemyType = {hp:1, rapid:false, type:'suicide'};
-      else if (r < 0.40) enemyType = {hp:2, rapid:false, type:'armored'};
-      else if (r < 0.50) enemyType = {hp:1, rapid:false, type:'scout'};
-      else if (r < 0.60) enemyType = {hp:1, rapid:false, type:'splitter'};
+      if (r < 0.16) enemyType = {kind:'light', rapid:false, type:'suicide'};
+      else if (r < 0.40) enemyType = {kind:'medium', rapid:false, type:'armored'};
+      else if (r < 0.52) enemyType = {kind:'light', rapid:false, type:'scout'};
+      else if (r < 0.64) enemyType = {kind:'light', rapid:false, type:'splitter'};
     } else if (lv >= 3) {
-      if (r < 0.28) enemyType = {hp:2, rapid:false, type:'armored'};
-      else if (r < 0.38) enemyType = {hp:1, rapid:false, type:'scout'};
-      else if (r < 0.50) enemyType = {hp:1, rapid:false, type:'splitter'};
+      if (r < 0.26) enemyType = {kind:'medium', rapid:false, type:'armored'};
+      else if (r < 0.38) enemyType = {kind:'light', rapid:false, type:'scout'};
+      else if (r < 0.50) enemyType = {kind:'light', rapid:false, type:'splitter'};
     } else if (lv >= 2) {
-      if (r < 0.13) enemyType = {hp:1, rapid:false, type:'scout'};
+      if (r < 0.13) enemyType = {kind:'light', rapid:false, type:'scout'};
     }
     for (const x of spotsX){
       if (!canMove({x,y:spotsY,w:TILE,h:TILE}, x, spotsY)) continue;
@@ -3358,7 +3391,22 @@
     }
   }
 
+  // 敌人血条：满血时不画，受伤后才在头顶出现
+  function drawEnemyHp(e){
+    if (!(e.maxHp > 0) || e.hp >= e.maxHp) return;
+    const b = buildOf(e);
+    const pct = Math.max(0, Math.min(1, e.hp / e.maxHp));
+    const w = b.bodyW + b.treadW * 0.6, h = 3.0;
+    const x = e.x + (e.w - w) / 2, y = e.y - 3.4;
+    shape(ctx, x - 0.9, y - 0.9, w + 1.8, h + 1.8, 1.6, 'rgba(4,9,15,.92)');
+    shape(ctx, x, y, w, h, 1.0, 'rgba(58,74,92,.8)');
+    if (pct > 0) shape(ctx, x, y, w * pct, h, 1.0,
+      pct > 0.62 ? '#7cf07c' : pct > 0.3 ? '#ffd24d' : '#ff6b6b');
+  }
+
+  // 车体：轻型窄、重型宽且有额外裙板与双排负重轮
   function drawTank(t){
+    const b = buildOf(t);
     const base = t.color || '#6cff6c';
     const cHi = mix(base, '#ffffff', 0.6);
     const cMid = mix(base, '#ffffff', 0.1);
@@ -3366,69 +3414,90 @@
     const cDeep = mix(base, '#03080f', 0.74);
     const edge = 'rgba(2,7,14,.8)';
     const now = Date.now();
+    const BW = b.bodyW, BH = b.bodyH;
+    const turretY = -BH * 0.10;
     ctx.save();
     ctx.translate(t.x + t.w / 2, t.y + t.h / 2);
     ctx.rotate(DIR_ANGLE[t.dir] || 0);
 
-    // 落地阴影
+    // 落地阴影：重型更宽
     ctx.fillStyle = 'rgba(0,0,0,.3)';
-    ctx.beginPath(); ctx.ellipse(0, 3.4, 7.8, 5.2, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, BH * 0.25, b.shadowW, b.shadowW * 0.66, 0, 0, TAU); ctx.fill();
 
-    // 左右履带（深色胶质 + 履带齿）
+    // 左右履带
+    const treadH = BH + 1.2;
     for (const s of [-1, 1]){
-      const bx = s * 5.3 - 2.3;
-      shape(ctx, bx, -7.3, 4.6, 14.6, 2.2,
-        linGrad(ctx, bx, 0, bx + 4.6, 0, [[0, '#0e1826'], [0.42, '#33475e'], [1, '#0a131f']]), edge, 0.9);
-      // 履带齿
+      const bx = s * b.treadX - b.treadW / 2;
+      shape(ctx, bx, -treadH / 2, b.treadW, treadH, b.treadW * 0.48,
+        linGrad(ctx, bx, 0, bx + b.treadW, 0, [[0, '#0e1826'], [0.42, '#33475e'], [1, '#0a131f']]), edge, 0.9);
+      // 履带齿：重型多一排
       ctx.strokeStyle = 'rgba(4,10,18,.55)'; ctx.lineWidth = 0.8;
+      const teeth = b.skirt ? 6 : (BW > 8 ? 5 : 4);
       ctx.beginPath();
-      for (let i = 0; i < 5; i++){
-        const ty = -6.4 + i * 3.1;
-        ctx.moveTo(bx + 0.7, ty); ctx.lineTo(bx + 3.9, ty);
+      for (let i = 0; i < teeth; i++){
+        const ty = -treadH / 2 + 0.9 + i * ((treadH - 1.8) / (teeth - 1));
+        ctx.moveTo(bx + 0.7, ty); ctx.lineTo(bx + b.treadW - 0.7, ty);
       }
       ctx.stroke();
       // 外缘反光
       ctx.strokeStyle = 'rgba(200,235,255,.3)'; ctx.lineWidth = 0.55;
-      ctx.beginPath(); ctx.moveTo(bx + 0.55, -6.4); ctx.lineTo(bx + 0.55, 6.4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bx + 0.55, -treadH / 2 + 0.9); ctx.lineTo(bx + 0.55, treadH / 2 - 0.9); ctx.stroke();
+      // 重型额外的负重轮
+      if (b.skirt){
+        for (let i = 0; i < 3; i++){
+          circ(ctx, bx + b.treadW / 2, -treadH * 0.28 + i * treadH * 0.28, b.treadW * 0.17);
+          ctx.fillStyle = 'rgba(170,200,230,.5)'; ctx.fill();
+        }
+      }
     }
 
     // 车体
-    shape(ctx, -4.4, -6.9, 8.8, 13.8, 2.9,
-      linGrad(ctx, 0, -6.9, 0, 6.9,
+    shape(ctx, -BW / 2, -BH / 2, BW, BH, BW * 0.33,
+      linGrad(ctx, 0, -BH / 2, 0, BH / 2,
         [[0, mix(base, '#ffffff', 0.34)], [0.26, cMid], [0.72, cLow], [1, cDeep]]), edge, 1.0);
     // 车体顶部高光带
-    shape(ctx, -3.0, -5.9, 6.0, 1.9, 1.0, 'rgba(255,255,255,.18)');
+    shape(ctx, -BW * 0.34, -BH / 2 + 1.0, BW * 0.68, BH * 0.14, BH * 0.07, 'rgba(255,255,255,.18)');
     // 车体底部阴影
-    shape(ctx, -3.1, 3.4, 6.2, 2.7, 1.3, 'rgba(2,7,16,.3)');
+    shape(ctx, -BW * 0.35, BH / 2 - BH * 0.22, BW * 0.70, BH * 0.18, BH * 0.09, 'rgba(2,7,16,.3)');
     // 侧面科技槽
     for (const s of [-1, 1]){
-      shape(ctx, s > 0 ? 2.2 : -3.4, -2.0, 1.2, 6.0, 0.6, 'rgba(6,14,26,.2)');
+      shape(ctx, s > 0 ? BW * 0.25 : -BW * 0.25 - 1.2, -BH * 0.15, 1.2, BH * 0.44, 0.6, 'rgba(6,14,26,.2)');
+    }
+    // 重型：车体两侧装甲裙板
+    if (b.skirt){
+      for (const s of [-1, 1]){
+        shape(ctx, s > 0 ? BW / 2 - 1.4 : -BW / 2, -BH * 0.34, 1.4, BH * 0.68, 0.6, alpha(base, 0.34), edge, 0.5);
+      }
     }
 
     // 炮塔（深色金属 + 队伍色描边，与车体拉开明度）
-    circ(ctx, 0, -1.5, 3.3);
-    ctx.fillStyle = radGrad(ctx, -1.0, -2.8, 0.3, 4.3,
+    const TR = b.turretR;
+    circ(ctx, 0, turretY, TR);
+    ctx.fillStyle = radGrad(ctx, -TR * 0.3, turretY - TR * 0.4, 0.3, TR * 1.3,
       [[0, '#9fb4cd'], [0.48, '#4d627b'], [1, '#1b2735']]);
     ctx.fill();
     ctx.strokeStyle = alpha(base, 0.9); ctx.lineWidth = 0.7; ctx.stroke();
     // 炮塔环
-    circ(ctx, 0, -1.5, 2.0);
+    circ(ctx, 0, turretY, TR * 0.61);
     ctx.strokeStyle = alpha(base, 0.42); ctx.lineWidth = 0.5; ctx.stroke();
     // 炮塔小高光（不抢视觉）
-    circ(ctx, -1.0, -2.55, 0.5);
+    circ(ctx, -TR * 0.3, turretY - TR * 0.32, TR * 0.15);
     ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fill();
 
     // 炮管（金属 + 队伍色能量条）
-    shape(ctx, -0.9, -9.8, 1.8, 7.6, 0.9,
-      linGrad(ctx, -0.9, 0, 0.9, 0, [[0, '#93a9c2'], [0.44, '#4a5f78'], [1, '#1a2633']]), edge, 0.8);
-    shape(ctx, -0.2, -9.0, 0.5, 5.6, 0.25, alpha(base, 0.55));
+    const bw = b.barrelW;
+    const barrelH = -b.barrelTop + turretY;
+    shape(ctx, -bw / 2, b.barrelTop, bw, barrelH, bw * 0.5,
+      linGrad(ctx, -bw / 2, 0, bw / 2, 0, [[0, '#93a9c2'], [0.44, '#4a5f78'], [1, '#1a2633']]), edge, 0.8);
+    shape(ctx, -bw * 0.11, b.barrelTop + 0.8, bw * 0.28, barrelH * 0.74, bw * 0.14, alpha(base, 0.55));
     // 炮口制退器
-    shape(ctx, -1.5, -11.0, 3.0, 2.1, 1.0, '#5a7089', edge, 0.7);
-    shape(ctx, -0.85, -10.6, 1.7, 0.75, 0.35, 'rgba(255,255,255,.3)');
+    const mw = b.muzzleW, mh = mw * 0.7;
+    shape(ctx, -mw / 2, b.muzzleTop, mw, mh, mh * 0.48, '#5a7089', edge, 0.7);
+    shape(ctx, -mw * 0.28, b.muzzleTop + mh * 0.22, mw * 0.56, mh * 0.3, mh * 0.15, 'rgba(255,255,255,.3)');
 
     // 状态灯（卡通高光闪烁）
     const lamp = 0.55 + 0.45 * Math.sin(now / 240 + (t.x + t.y) * 0.05);
-    circ(ctx, 0, 1.0, 1.1);
+    circ(ctx, 0, turretY + BH * 0.26, BW * 0.125);
     ctx.fillStyle = 'rgba(255,255,255,' + lamp.toFixed(2) + ')';
     ctx.fill();
 
@@ -3658,7 +3727,7 @@
         drawTank(ally);
       }
     }
-    for (const e of enemies) if (e.alive){ drawTank(e); if (e.shield > 0) drawShieldRing(e); }
+    for (const e of enemies) if (e.alive){ drawTank(e); if (e.shield > 0) drawShieldRing(e); drawEnemyHp(e); }
     if (boss && boss.alive) drawBoss(boss);
 
     // 冰冻视觉效果
@@ -3929,7 +3998,21 @@
   // ===== 更新日志 =====
   const CHANGELOG = [
     {
-      ver: 'v1.28', date: '2026-10-18',
+      ver: 'v1.29-beta', date: '2026-10-19',
+      tags: [['new','敌人'],['fix','平衡']],
+      desc: [
+        '敌方坦克分成轻型 / 中型 / 重型三档：轻型 2 血、车体窄小；中型 4 血；重型 8 血，车体最宽、带装甲裙板和三对负重轮，移速只有轻型的三分之二',
+        '敌人掉血后头顶会出现小血条，按剩余血量绿 → 黄 → 红变色，满血时不显示，一眼看出该先打谁',
+        '玩家坦克伤害重新标定：标准单发 2 点、重炮单发 4 点（一炮破盾还重创本体）、迅捷单发 1 点 —— 迅捷打轻型正好两发，打重型要八发',
+        '迅捷坦克削了一刀：移速 1.74 → 1.50、装填 15 → 18 帧，不再是无脑最优解',
+        '后期敌人不再一律 1～2 血：越往后面越容易遇到中型和重型，但同屏数量仍然封顶，不靠堆人数堆难度',
+        '所有版本号加上 -beta 测试标识',
+        '新增 1 个回归用例（敌方三档的血量、体格、速度必须真的不同）',
+      ],
+      minor: [5, 6],
+    },
+    {
+      ver: 'v1.28-beta', date: '2026-10-18',
       tags: [['other','界面'],['other','体验']],
       desc: [
         '更新日志改为只展开主要改动：每个版本默认只列前几条大改动，其余收进「其余 N 项小改动」，点一下才展开',
@@ -3938,7 +4021,7 @@
       ],
     },
     {
-      ver: 'v1.27', date: '2026-10-18',
+      ver: 'v1.27-beta', date: '2026-10-18',
       tags: [['new','坦克'],['new','敌人']],
       desc: [
         '新增三种可选坦克：标准（均衡）、重炮（单发伤害 2、能一炮破盾，但移速和装填都慢）、迅捷（移速 1.74、装填快到 15 帧，但单发伤害低），在菜单上点一下就能换',
@@ -3951,7 +4034,7 @@
       minor: [4, 5],
     },
     {
-      ver: 'v1.26', date: '2026-10-18',
+      ver: 'v1.26-beta', date: '2026-10-18',
       tags: [['new','视觉'],['other','界面']],
       desc: [
         '整体去掉渐变：样式表里 32 处渐变、画布上 29 处渐变全部改成纯色，标题不再是渐变字，按钮、卡片、弹窗都换成实色块',
@@ -3965,7 +4048,7 @@
       minor: [3, 5, 6],
     },
     {
-      ver: 'v1.25', date: '2026-10-18',
+      ver: 'v1.25-beta', date: '2026-10-18',
       tags: [['fix','布局'],['other','体验']],
       desc: [
         '修复「玩起来画面会上下位移」：右侧信息面板里难度、连杀、本关惩罚、作弊这些行是动态出现的，多一行就把整个游戏区撑高，而游戏区在页面里是垂直居中的，于是每多一行画面就整体上跳 13~14px',
@@ -3977,7 +4060,7 @@
       minor: [3, 4],
     },
     {
-      ver: 'v1.24', date: '2026-10-18',
+      ver: 'v1.24-beta', date: '2026-10-18',
       tags: [['fix','Boss'],['other','体验']],
       desc: [
         '修复 Boss 容易卡墙：Boss 体型是 2×2 格，原来只检测四角，卡在中间的砖柱、钢块根本测不到，会直接「嵌」进墙里出不来',
@@ -3990,7 +4073,7 @@
       ],
     },
     {
-      ver: 'v1.23', date: '2026-10-18',
+      ver: 'v1.23-beta', date: '2026-10-18',
       tags: [['fix','操作'],['other','体验']],
       desc: [
         '修复电脑上玩时方向键/空格会把页面上下拉动：所有游戏按键（WASD/J/K/空格/方向键/P/R/O/I/L/M）统一拦截浏览器默认滚动行为',
@@ -4000,7 +4083,7 @@
       ],
     },
     {
-      ver: 'v1.22', date: '2026-10-18',
+      ver: 'v1.22-beta', date: '2026-10-18',
       tags: [['new','队友'],['fix','修复']],
       desc: [
         'AI 队友随关卡增加：第 3 关 1 个、第 6 关 2 个、第 9 关 3 个（困难模式 +1），后期火力不再只靠玩家一个人',
@@ -4012,7 +4095,7 @@
       ],
     },
     {
-      ver: 'v1.21', date: '2026-10-17',
+      ver: 'v1.21-beta', date: '2026-10-17',
       tags: [['fix','平衡'],['new','体验']],
       desc: [
         '修复「第三关突然爆炸」：原来每轮批量出怪从第 3 关就翻倍成 2 个，而且同屏敌人没有上限，敌人越积越多直接把基地淹掉',
@@ -4024,7 +4107,7 @@
       ],
     },
     {
-      ver: 'v1.20', date: '2026-10-17',
+      ver: 'v1.20-beta', date: '2026-10-17',
       tags: [['new','模式'],['other','玩法']],
       desc: [
         '新增「困难模式」：只有 1 条命、3 点血；每关敌军总量 26 起、每关 +3（普通模式 20 起、每关 +2）',
@@ -4036,7 +4119,7 @@
       ],
     },
     {
-      ver: 'v1.19', date: '2026-10-17',
+      ver: 'v1.19-beta', date: '2026-10-17',
       tags: [['new','视觉'],['other','重构']],
       desc: [
         '整体观感重做：去掉全部像素风，改为「卡通 + 科幻」画风（深空蓝底 + 青/紫霓虹 + 圆角 + 玻璃质感）',
@@ -4049,7 +4132,7 @@
       ],
     },
     {
-      ver: 'v1.18', date: '2026-08-23',
+      ver: 'v1.18-beta', date: '2026-08-23',
       tags: [['fix','修复'],['other','平衡']],
       desc: [
         '修复卡关：敌人生成改批量（高等级一次 2~3 个），空场等怪、关卡拖沓的问题缓解',
@@ -4058,7 +4141,7 @@
       ],
     },
     {
-      ver: 'v1.17', date: '2026-08-15',
+      ver: 'v1.17-beta', date: '2026-08-15',
       tags: [['fix','修复'],['other','平衡']],
       desc: [
         '修复严重 bug：复活无敌计时未递减导致玩家永久无敌（实为"护盾无敌"的真相）',
@@ -4068,7 +4151,7 @@
       ],
     },
     {
-      ver: 'v1.16', date: '2026-08-15',
+      ver: 'v1.16-beta', date: '2026-08-15',
       tags: [['new','玩法'],['other','界面']],
       desc: [
         '无尽模式波次奖励：清场后随机道具次数 + 升级界面显示',
@@ -4078,7 +4161,7 @@
       ],
     },
     {
-      ver: 'v1.15', date: '2026-08-15',
+      ver: 'v1.15-beta', date: '2026-08-15',
       tags: [['new','玩法'],['ai','AI']],
       desc: [
         'Boss 战升级为三阶段：50% 血狂暴（扇形弹幕+增援），25% 血最终狂暴（环形弹幕+周期召唤）',
@@ -4087,14 +4170,14 @@
       ],
     },
     {
-      ver: 'v1.14', date: '2026-08-15',
+      ver: 'v1.14-beta', date: '2026-08-15',
       tags: [['new','新增'],['other','界面']],
       desc: [
         '新增最高分记录（localStorage 持久化，游戏结束显示新纪录 🏆，主菜单显示最高分）',
       ],
     },
     {
-      ver: 'v1.13', date: '2026-08-15',
+      ver: 'v1.13-beta', date: '2026-08-15',
       tags: [['new','玩法'],['other','界面']],
       desc: [
         '低血量警示：HP≤1 时红色脉动边框',
@@ -4103,7 +4186,7 @@
       ],
     },
     {
-      ver: 'v1.12', date: '2026-08-15',
+      ver: 'v1.12-beta', date: '2026-08-15',
       tags: [['new','玩法'],['other','手机']],
       desc: [
         '手机端新增虚拟摇杆反馈（滑动时显示，松开隐藏）',
@@ -4112,7 +4195,7 @@
       ],
     },
     {
-      ver: 'v1.11', date: '2026-08-15',
+      ver: 'v1.11-beta', date: '2026-08-15',
       tags: [['new','玩法'],['perf','优化']],
       desc: [
         '得分飘字：击杀/拾取时画布飘出 +分数，打击感大幅提升',
@@ -4123,7 +4206,7 @@
       ],
     },
     {
-      ver: 'v1.10', date: '2026-08-15',
+      ver: 'v1.10-beta', date: '2026-08-15',
       tags: [['new','新增'],['other','界面']],
       desc: [
         '右侧面板新增操作键位说明（移动/开炮/暂停菜单，双人模式显示 P2 键位）',
@@ -4131,7 +4214,7 @@
       ],
     },
     {
-      ver: 'v1.9', date: '2026-08-15',
+      ver: 'v1.9-beta', date: '2026-08-15',
       tags: [['new','玩法'],['perf','优化']],
       desc: [
         '道具改为次数制：护盾/基地护盾/穿甲/加速/三连发/激光/双倍得分可叠加，用完即止，无时间限制',
@@ -4139,7 +4222,7 @@
       ],
     },
     {
-      ver: 'v1.8', date: '2026-08-15',
+      ver: 'v1.8-beta', date: '2026-08-15',
       tags: [['new','玩法'],['perf','优化'],['ai','AI']],
       desc: [
         '性能优化：静态地图离屏预渲染 + DOM 脏检查，帧率大幅提升',
@@ -4150,7 +4233,7 @@
       ],
     },
     {
-      ver: 'v1.7', date: '2026-07-11',
+      ver: 'v1.7-beta', date: '2026-07-11',
       tags: [['new','玩法']],
       desc: [
         '复活无敌：玩家 1.5 秒、敌人 1 秒，子弹/自爆撞击无效，带闪光特效',
@@ -4159,7 +4242,7 @@
       ],
     },
     {
-      ver: 'v1.6', date: '2026-07-11',
+      ver: 'v1.6-beta', date: '2026-07-11',
       tags: [['new','玩法'],['ai','AI']],
       desc: [
         'AI 智能寻路：遇砖墙开火击碎、遇钢墙立即绕路',
@@ -4169,7 +4252,7 @@
       ],
     },
     {
-      ver: 'v1.5', date: '2026-07-11',
+      ver: 'v1.5-beta', date: '2026-07-11',
       tags: [['new','玩法'],['other','界面']],
       desc: [
         '页面背景美化：深色渐变纹理 + 军事网格',
@@ -4179,7 +4262,7 @@
       ],
     },
     {
-      ver: 'v1.4', date: '2026-07-10',
+      ver: 'v1.4-beta', date: '2026-07-10',
       tags: [['new','玩法'],['other','手机']],
       desc: [
         '手机端：去掉可见摇杆，改为滑动操控 + 操作提示',
@@ -4640,7 +4723,7 @@
     },
     spawnEnemyNearBase() {
       if (!base) return false;
-      const e = makeTank(false, {hp:1, rapid:false, type:'normal'});
+      const e = makeTank(false, {kind:'light', rapid:false, type:'normal'});
       e.x = base.c*TILE - 2*TILE; e.y = base.r*TILE - 3*TILE;
       e.dir = 'down';
       enemies.push(e);
@@ -4662,7 +4745,7 @@
       return { hasThreat: !!target, allyDir: ally.dir, allyX: ally.x, allyY: ally.y };
     },
     makeEnemyAt(type, c, r) {
-      const e = makeTank(false, {hp:1, rapid:false, type:type||'normal'});
+      const e = makeTank(false, {kind:'light', rapid:false, type:type||'normal'});
       e.x = c*TILE; e.y = r*TILE;
       e.dir = 'down';
       return e;
@@ -4729,7 +4812,7 @@
     get playerMaxHP() { return playerMaxHP; },
     get diffParams() { return { ...diff() }; },
     enemySpeed(type) {
-      const e = makeTank(false, { hp:1, rapid:false, type: type || 'normal' });
+      const e = makeTank(false, { kind:'light', rapid:false, type: type || 'normal' });
       return e.speed;
     },
     // 坦克选择 / 敌人护盾测试钩子
@@ -4754,7 +4837,8 @@
       // 清出一块空地，避免子弹先撞地形
       for (let r = 5; r <= 8; r++) for (let c = 5; c <= 8; c++) if (map[r][c] === 1 || map[r][c] === 2) map[r][c] = 0;
       mapDirty = true;
-      const e = makeTank(false, { hp: hp || 1, rapid:false, type:'normal' });
+      const e = makeTank(false, { kind:'light', rapid:false, type:'normal' });
+      if (hp != null) { e.hp = hp; e.maxHp = hp; }
       e.x = 6 * TILE; e.y = 6 * TILE;
       e.shield = shield || 0; e.maxShield = e.shield;
       e.invTimer = 0;
@@ -4765,8 +4849,32 @@
     },
     enemyState(tag) {
       const e = enemies.find(x => x.testTag === (tag || 'shieldprobe'));
-      return e ? { shield: e.shield || 0, hp: e.hp, alive: e.alive } : null;
+      return e ? { shield: e.shield || 0, hp: e.hp, maxHp: e.maxHp, alive: e.alive } : null;
     },
+    get enemyKinds() {
+      const out = {};
+      for (const k of Object.keys(ENEMY_KINDS)) out[k] = Object.assign({}, ENEMY_KINDS[k]);
+      return out;
+    },
+    // 直接摆一个指定体格的敌人，用于对比模型与血量
+    spawnEnemyOfKind(kind, x, y, opts) {
+      const o = opts || {};
+      const e = makeTank(false, { kind: kind || 'medium', rapid: !!o.rapid, type: o.type || 'normal' });
+      e.x = x; e.y = y;
+      // 顺手把落脚点附近的砖/钢清掉，免得模型被地形挡住看不清
+      const c0 = Math.floor(x / TILE), r0 = Math.floor(y / TILE);
+      for (let rr = r0 - 1; rr <= r0 + 3; rr++) for (let cc = c0 - 1; cc <= c0 + 3; cc++){
+        if (rr >= 0 && cc >= 0 && rr < ROWS && cc < COLS && (map[rr][cc] === 1 || map[rr][cc] === 2)) map[rr][cc] = 0;
+      }
+      mapDirty = true;
+      e.aiTimer = 1e9; e.invTimer = 0;
+      e.shield = o.shield || 0; e.maxShield = e.shield;
+      if (o.hp != null) e.hp = o.hp;
+      e.testTag = o.tag || ('kind_' + kind);
+      enemies.push(e);
+      return { x: e.x, y: e.y, kind: e.kind, hp: e.hp, maxHp: e.maxHp, speed: e.speed, build: e.build };
+    },
+    clearEnemiesNow() { enemies = []; },
     testBullet(x, y, opts) {
       const o = opts || {};
       bullets.push({ x, y, vx: o.vx || 0, vy: o.vy === undefined ? -3 : o.vy, from: 'p', w: 4, h: 4,

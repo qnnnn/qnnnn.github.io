@@ -592,9 +592,9 @@ test('W: enemy shield absorbs a hit before hp is lost', async ({ page }) => {
     return out;
   });
 
-  expect(res.standard).toEqual({ shield: 0, hp: 1, alive: true });
-  expect(res.heavy).toEqual({ shield: 0, hp: 1, alive: true });
-  expect(res.twoLayer).toEqual({ shield: 1, hp: 3, alive: true });
+  expect(res.standard).toEqual({ shield: 0, hp: 1, maxHp: 1, alive: true });
+  expect(res.heavy).toEqual({ shield: 0, hp: 1, maxHp: 3, alive: true });
+  expect(res.twoLayer).toEqual({ shield: 1, hp: 3, maxHp: 3, alive: true });
 });
 
 test('X: later levels add shields instead of piling up enemies', async ({ page }) => {
@@ -626,4 +626,35 @@ test('X: later levels add shields instead of piling up enemies', async ({ page }
   // 总量随关卡缓增（旧版每关 +2，第 14 关就有 46）
   expect(data.totals[0]).toBeLessThan(20);
   expect(data.totals[data.totals.length - 1]).toBeLessThan(42);
+});
+
+test('Y: enemy builds differ in size, hp and speed', async ({ page }) => {
+  await page.click('#btn1p');
+  await page.waitForTimeout(2400);   // 等开局过场结束
+
+  const res = await page.evaluate(() => {
+    const t = window.__test;
+    t.clearEnemiesNow();
+    const mk = (k, x) => t.spawnEnemyOfKind(k, x, 120);
+    return { light: mk('light', 64), medium: mk('medium', 128), heavy: mk('heavy', 192), kinds: t.enemyKinds };
+  });
+
+  // 血量：轻型 < 中型 < 重型
+  expect(res.light.hp).toBeLessThan(res.medium.hp);
+  expect(res.medium.hp).toBeLessThan(res.heavy.hp);
+  // 体格标签要真的落到模型上（画布按 build 取尺寸参数）
+  expect(res.light.build).toBe('light');
+  expect(res.medium.build).toBe('medium');
+  expect(res.heavy.build).toBe('heavy');
+  // 血厚的走得慢
+  expect(res.heavy.speed).toBeLessThan(res.light.speed);
+  // 数值表本身可读
+  expect(res.kinds.heavy.hp).toBeGreaterThan(res.kinds.light.hp);
+
+  // 迅捷坦克单发 1 点，打轻型（2 血）正好两发
+  const scoutDmg = await page.evaluate(() => {
+    window.__test.selectTank('scout');
+    return window.__test.tankStats.dmg;
+  });
+  expect(scoutDmg * 2).toBe(res.light.hp);
 });
