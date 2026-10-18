@@ -789,16 +789,16 @@ test('AB: boss final-rage bullet density stays dodgeable', async ({ page }) => {
   expect(peak).toBeLessThanOrEqual(40);
   expect(sum / n).toBeLessThanOrEqual(22);
 });
-test('AC: player ammo drains, blocks firing, and refills per tank', async ({ page }) => {
-  // 标准坦克：弹匣 6，回填 20 帧/发
+test('AC: player ammo drains on fire, empty triggers full-magazine reload', async ({ page }) => {
+  // 标准坦克：弹匣 6，整匣换弹 90 帧（1.5 秒）
   await page.click('#btn1p');
   await page.waitForTimeout(2400);
   const stats = await page.evaluate(() => window.__test.tankStats);
   expect(stats.magazine).toBe(6);
-  expect(stats.reload).toBe(20);
+  expect(stats.reload).toBe(90);
   expect(await page.evaluate(() => window.__test.playerAmmo)).toBe(6);
 
-  // 同一帧连发 12 次：前 6 发正常，第 7 发起弹匣空 → 哑火（fireOnce 仍返回 true 但弹药停在 0）
+  // 同一帧连发 12 次：前 6 发正常消耗，第 7 发起弹匣空 → 哑火
   const burst = await page.evaluate(() => {
     const t = window.__test;
     const out = [];
@@ -807,15 +807,18 @@ test('AC: player ammo drains, blocks firing, and refills per tank', async ({ pag
   });
   expect(burst).toEqual([5, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0]);
 
-  // 2 秒内回填恢复（20 帧/发 → 0.33s 一发）
-  await page.waitForTimeout(2000);
-  expect(await page.evaluate(() => window.__test.playerAmmo)).toBe(6);
+  // 打空后进入换弹状态（reloading = true）
+  expect(await page.evaluate(() => window.__test.playerReloading)).toBe(true);
 
-  // 三坦克的弹匣与回填互不相同
-  const specs = await page.evaluate(() => window.__test.tankSpecs || null);
-  // tankSpecs 不存在就用 selectTank 逐一切
+  // 换弹期间不能开火（即使弹药恢复也不会因为 reloading 被阻止 → 等 reloading 结束）
+  // 等 1.6 秒（90 帧 = 1.5 秒 + 余量）后弹匣全满且 reloading 结束
+  await page.waitForTimeout(1700);
+  expect(await page.evaluate(() => window.__test.playerAmmo)).toBe(6);
+  expect(await page.evaluate(() => window.__test.playerReloading)).toBe(false);
+
+  // 三坦克的弹匣与换弹时间互不相同
   const read = async (k) => {
-    await page.keyboard.press('m');            // 回菜单
+    await page.keyboard.press('m');
     await page.waitForTimeout(400);
     await page.click('#tankPicks .pick[data-tank="' + k + '"]');
     await page.click('#btn1p');
@@ -824,9 +827,10 @@ test('AC: player ammo drains, blocks firing, and refills per tank', async ({ pag
   };
   const heavy = await read('heavy');
   expect(heavy.magazine).toBe(3);
+  expect(heavy.reload).toBe(70);
   const scout = await read('scout');
   expect(scout.magazine).toBe(10);
-  expect(scout.reload).toBeLessThan(stats.reload);   // 迅捷回填最快
+  expect(scout.reload).toBeLessThan(stats.reload);   // 迅捷换弹最快
 });
 
 test('AD: ammoCrate refills magazine and speeds up reload', async ({ page }) => {

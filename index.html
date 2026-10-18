@@ -1029,13 +1029,13 @@
   const PLAYER_TANKS = {
     standard: { key:'standard', name:'标准坦克', short:'标准', color:'#6cff6c', build:'medium',
       speed:1.2,  bulletSpeed:2.4, cd:28, dmg:2, pierce:1, blurb:'均衡',
-      magazine: 6, reload: 20 },
+      magazine: 6, reload: 90 },
     heavy:    { key:'heavy',    name:'重炮坦克', short:'重炮', color:'#ffb14d', build:'heavy',
       speed:0.82, bulletSpeed:2.2, cd:46, dmg:4, pierce:2, blurb:'破盾',
-      magazine: 3, reload: 24 },
+      magazine: 3, reload: 70 },
     scout:    { key:'scout',    name:'迅捷坦克', short:'迅捷', color:'#69e6ff', build:'light',
       speed:1.5,  bulletSpeed:2.9, cd:18, dmg:1, pierce:1, blurb:'快射',
-      magazine: 10, reload: 13 },
+      magazine: 10, reload: 60 },
   };
   let playerTank = 'standard';
   function tankSpec(){ return PLAYER_TANKS[playerTank] || PLAYER_TANKS.standard; }
@@ -1455,11 +1455,12 @@
       build: isPlayer ? tankSpec().build : 'medium',
       kind: 'medium',
       type: 'normal',
-      // 弹匣：玩家开火消耗、随时间回填（弹匣/回填速度按坦克不同，见 PLAYER_TANKS）
+      // 弹匣：玩家开火消耗，打空后整匣换弹（换弹期间不能开火）
       ammo: isPlayer ? tankSpec().magazine : 0,
       ammoMax: isPlayer ? tankSpec().magazine : 0,
       reloadTicks: isPlayer ? tankSpec().reload : 0,
-      reloadTimer: 0
+      reloadTimer: 0,
+      reloading: false
     };
     if (!isPlayer && enemyType){
       const kind = ENEMY_KINDS[enemyType.kind || 'medium'] || ENEMY_KINDS.medium;
@@ -1879,8 +1880,8 @@
     if (t.cooldown > 0) return;
     const isAlly = !!t.isAlly;                        // AI 队友：玩家阵营，但不消耗玩家的强化次数
     const isPlayer = !!t.isPlayer && !isAlly;
-    // 弹匣：没弹就打不响（回填由 update() 负责，见玩家更新段）
-    if (isPlayer && t.ammo <= 0) return;
+    // 弹匣：没弹或正在换弹就打不响（换弹由 update() 里的 reloadTank 负责）
+    if (isPlayer && (t.ammo <= 0 || t.reloading)) return;
     const rapid = !isPlayer && t.rapid;
     // 次数制：每次射击消耗 1 次对应强化
     const isLaser = isPlayer && laserCharges > 0;   // 激光速射
@@ -1923,7 +1924,13 @@
         pierce: isPlayer ? spec.pierce : 1
       });
     }
-    if (isPlayer) t.ammo = Math.max(0, t.ammo - count);   // 每颗子弹吃 1 发弹药（三连发=3）
+    if (isPlayer) {
+      t.ammo = Math.max(0, t.ammo - count);   // 每颗子弹吃 1 发弹药（三连发=3）
+      if (t.ammo <= 0) {                       // 打空了 → 触发整匣换弹
+        t.reloading = true;
+        t.reloadTimer = 0;
+      }
+    }
     if (allies.includes(t)) allyShotsFired++;
     sfx.shoot();
   }
@@ -1953,23 +1960,33 @@
   }
   function shake(t,i){ shakeTimer=Math.max(shakeTimer,t); shakeIntensity=Math.max(shakeIntensity,i); }
 
-  // 弹匣回填：满弹不动，缺一发就按坦克自己的 reloadTicks 补一发
+  // 整匣换弹：弹匣打空后触发，换弹期间不能开火，完成后弹匣全满
   function reloadTank(t, dt) {
-    if (!t || !t.ammoMax || t.ammo >= t.ammoMax) { t.reloadTimer = 0; return; }
-    const rt = ammoBuffTimer > 0 ? Math.max(8, t.reloadTicks * 0.65) : t.reloadTicks;
-    t.reloadTimer -= dt;
-    while (t.reloadTimer <= 0 && t.ammo < t.ammoMax) {
-      t.ammo++;
-      t.reloadTimer += rt;
+    if (!t || !t.ammoMax || !t.reloading) return;
+    const rt = ammoBuffTimer > 0 ? Math.max(20, t.reloadTicks * 0.65) : t.reloadTicks;
+    t.reloadTimer += dt;
+    if (t.reloadTimer >= rt) {
+      t.ammo = t.ammoMax;
+      t.reloading = false;
+      t.reloadTimer = 0;
     }
   }
   function updateAmmoDisplay(){
     if (!player) return;
     const t = dualMode && player2 && player2.alive ? player2 : player;
     if (!t.ammoMax) { setText(ammoEl, ''); return; }
-    let s = '';
-    for (let i = 0; i < t.ammoMax; i++) s += i < t.ammo ? '▰' : '▱';
-    setText(ammoEl, s);
+    if (t.reloading) {
+      const rt = ammoBuffTimer > 0 ? Math.max(20, t.reloadTicks * 0.65) : t.reloadTicks;
+      const pct = Math.min(1, t.reloadTimer / rt);
+      const filled = Math.floor(pct * t.ammoMax);
+      let s = '';
+      for (let i = 0; i < t.ammoMax; i++) s += i < filled ? '▰' : '▱';
+      setText(ammoEl, s + ' 换弹');
+    } else {
+      let s = '';
+      for (let i = 0; i < t.ammoMax; i++) s += i < t.ammo ? '▰' : '▱';
+      setText(ammoEl, s);
+    }
   }
   function updateHPDisplay(){
     const hearts = '❤'.repeat(Math.max(0, playerHP)) + '🖤'.repeat(Math.max(0, playerMaxHP - playerHP));
@@ -3025,7 +3042,7 @@
         if (p.type === 'triple'){ tripleCharges++; }          // 三连发次数 +1
         if (p.type === 'laser'){ laserCharges++; }            // 激光次数 +1
         if (p.type === 'score'){ scoreCharges++; }            // 双倍得分次数 +1
-        if (p.type === 'ammoCrate'){ if (player){ player.ammo = player.ammoMax; player.reloadTimer = 0; } ammoBuffTimer = 240; }  // 弹药箱：填满弹匣 + 240 tick 回填加速
+        if (p.type === 'ammoCrate'){ if (player){ player.ammo = player.ammoMax; player.reloading = false; player.reloadTimer = 0; } ammoBuffTimer = 240; }  // 弹药箱：填满弹匣 + 取消换弹 + 240 tick 换弹加速
         if (p.type === 'medic'){ for (const a of allies) if (a.alive){ a.hp = a.maxHp; } allyRegenTimer = 360; }  // 治疗站：全队满血 + 360 tick 每秒回 1
         if (p.type === 'magnet'){ magnetTimer = 480; }         // 强磁：480 tick 内磁吸 4.5×2.2 = 拉近速度×4.5
         if (p.type === 'slowField'){ slowFieldTimer = 360; }   // 减速场：360 tick 敌人/玩家/友军减速 0.6
@@ -3961,14 +3978,23 @@
     for (const e of enemies) if (e.alive){ drawTank(e); if (e.shield > 0) drawShieldRing(e); drawEnemyHp(e); }
     if (boss && boss.alive) drawBoss(boss);
 
-    // 玩家弹药条：满弹不画，缺弹才在头顶显示（不挡敌人血条位置，只在下方贴地画）
+    // 玩家弹药条：满弹不画，缺弹或换弹中才显示
     for (const t of [player, player2]) {
-      if (!t || !t.alive || !t.ammoMax || t.ammo >= t.ammoMax) continue;
+      if (!t || !t.alive || !t.ammoMax) continue;
+      if (!t.reloading && t.ammo >= t.ammoMax) continue;
       const bw = 13, bh = 2.2, bx = t.x + (t.w - bw) / 2, by = t.y + t.h + 1.6;
       shape(ctx, bx - 0.8, by - 0.8, bw + 1.6, bh + 1.6, 1.4, 'rgba(4,9,15,.9)');
       shape(ctx, bx, by, bw, bh, 0.9, 'rgba(58,74,92,.8)');
-      const pct = t.ammo / t.ammoMax;
-      shape(ctx, bx, by, bw * pct, bh, 0.9, pct > 0.5 ? '#69e6ff' : pct > 0.25 ? '#ffd24d' : '#ff6b6b');
+      let pct, col;
+      if (t.reloading) {
+        const rt = ammoBuffTimer > 0 ? Math.max(20, t.reloadTicks * 0.65) : t.reloadTicks;
+        pct = Math.min(1, t.reloadTimer / rt);
+        col = pct > 0.66 ? '#69e6ff' : pct > 0.33 ? '#ffd24d' : '#ff6b6b';
+      } else {
+        pct = t.ammo / t.ammoMax;
+        col = pct > 0.5 ? '#69e6ff' : pct > 0.25 ? '#ffd24d' : '#ff6b6b';
+      }
+      shape(ctx, bx, by, bw * pct, bh, 0.9, col);
     }
 
     // 冰冻视觉效果
@@ -4240,6 +4266,17 @@
 
   // ===== 更新日志 =====
   const CHANGELOG = [
+    {
+      ver: 'v1.37-beta', date: '2026-10-23',
+      tags: [['fix', '玩法'], ['other', '平衡']],
+      desc: [
+        '弹匣机制改成「打空才换弹」：不再逐发回填，弹匣打空后进入整匣换弹状态，换弹期间不能开火，完成后弹匣全满',
+        '三种坦克换弹时间重新标定：标准 6 发打空后换弹 90 帧（1.5 秒）、重炮 3 发 70 帧（1.17 秒）、迅捷 10 发 60 帧（1.0 秒）',
+        '面板弹药行换弹中显示「▰▰▱▱ 换弹」进度条，脚下弹药条同步显示换弹百分比，颜色随进度青→黄→红',
+        '弹药箱道具现在也会取消换弹状态，拾取后弹匣直接满且可立即开火',
+        'ammoBuffTimer（弹药箱加速）现在让整匣换弹时间 ×0.65，而不是逐发加速',
+      ],
+    },
     {
       ver: 'v1.36-beta', date: '2026-10-23',
       tags: [['perf', '流畅']],
@@ -5240,6 +5277,7 @@
     get playerSpeed() { return player ? player.speed : -1; },
     get playerAmmo() { return player ? player.ammo : -1; },
     get playerAmmoMax() { return player ? player.ammoMax : 0; },
+    get playerReloading() { return player ? !!player.reloading : false; },
     fireOnce() { if (player) { player.cooldown = 0; shoot(player); return true; } return false; },
     get enemyShieldForLevel() { return enemyShieldFor(level); },
     get shieldedEnemies() { return enemies.filter(e => e.alive && e.shield > 0).length; },

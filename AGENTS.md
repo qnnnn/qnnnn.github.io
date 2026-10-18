@@ -6,7 +6,7 @@ Single-file HTML5 Canvas game (~240KB in `index.html`). No build, no bundler, no
 
 | Command | What |
 |---------|------|
-| `npx playwright test` | Run all 46 tests headless |
+| `npx playwright test` | Run all 51 tests headless |
 | `npx playwright test --headed` | Run with browser visible |
 | `npx playwright test -g "test name"` | Run single test by name |
 
@@ -19,7 +19,7 @@ Single-file HTML5 Canvas game (~240KB in `index.html`). No build, no bundler, no
 - Tests load the game via `file://` protocol — no server needed.
 - Config: `playwright.config.mjs` (headless, 800×800 viewport, 30s timeout). If Playwright's bundled Chromium is not installed (e.g. offline, so `npx playwright install` can't run), the config automatically falls back to the system Google Chrome via `channel: 'chrome'`.
 - Test file: `battle-city.spec.mjs` — ESM (`.mjs`) despite `"type": "commonjs"` in `package.json`.
-- All 46 tests are **flat top-level** (no `describe()` blocks).
+- All 51 tests are **flat top-level** (no `describe()` blocks).
 - Tests mix `page.waitForTimeout()` (time-based waits for game state) with explicit Playwright assertions. If a test is flaky, increasing these timeouts is the typical fix — **but not when the flake is a read race.** When a test spawns an entity that can die almost immediately, the "before" baseline (`score`, `killedCount`) must be read inside the *same* `page.evaluate()` as the spawn. A separate round-trip read can land after the death frame, so the assertion overshoots and no amount of extra waiting helps. Tests N and O hit this; see `battle-city.spec.mjs` for the atomic-baseline pattern.
 - Newer tests use the `window.__test` debug API (e.g. `triggerPlayerDeath`, `applyBuff`, `addLevelDebuff`, `hitPlayer`, `setBaseHp`) to set up deterministic game states.
 - `node_modules/` and `test-results/` are gitignored.
@@ -65,13 +65,13 @@ Late-game pressure comes from **shields, not headcount** (`enemyShieldFor(lv)`).
 
 Three selectable player tanks live in `PLAYER_TANKS` (near `DIFFS`), chosen on the menu (`#tankPicks`, persisted in `playerTank`, read through `tankSpec()`):
 
-| key | build | speed | cd | dmg | pierce | magazine / reload (ticks per shell) | role |
+| key | build | speed | cd | dmg | pierce | magazine / reload (full-magazine ticks) | role |
 |-----|-------|-------|----|-----|--------|--------------------------------------|------|
-| `standard` | medium | 1.2 | 28 | 2 | 1 | 6 / 20 | baseline, two shots kill a light tank |
-| `heavy` | heavy | 0.82 | 46 | 4 | 2 | 3 / 24 | breaks a shield layer *and* deals 4 damage to the hull in one shot |
-| `scout` | light | 1.5 | 18 | 1 | 1 | 10 / 13 | fastest movement and fire rate, lowest per-shot damage |
+| `standard` | medium | 1.2 | 28 | 2 | 1 | 6 / 90 | baseline, two shots kill a light tank |
+| `heavy` | heavy | 0.82 | 46 | 4 | 2 | 3 / 70 | breaks a shield layer *and* deals 4 damage to the hull in one shot |
+| `scout` | light | 1.5 | 18 | 1 | 1 | 10 / 60 | fastest movement and fire rate, lowest per-shot damage |
 
-Each player tank has a **magazine**: firing consumes shells (`t.ammo`), and an empty magazine blocks `shoot()` entirely (the ammo check runs *before* buff charges are spent). Shells refill one at a time through `reloadTank(t, dt)` in the update loop (`reloadTicks` per shell, only while ammo is missing) — the refill rate is close to or faster than the fire cooldown on purpose ("don't make it slow"), so it only throttles sustained spam, not ordinary play. Triple-shot spends 3 shells per trigger pull, which is where the trade-off actually bites. The panel shows `▰/▱` blocks (`#ammoDisplay`, updated every frame by `updateAmmoDisplay()`), and a small under-tank bar appears whenever the player is missing shells. Test `AC` locks the drain → dry-fire → refill flow and the per-tank differences.
+Each player tank has a **magazine**: firing consumes shells (`t.ammo`), and an empty magazine triggers a full-magazine reload (`t.reloading = true`). While reloading, `shoot()` is blocked entirely — the ammo/reload check runs *before* buff charges are spent. `reloadTank(t, dt)` accumulates `t.reloadTimer`; when it reaches `reloadTicks` (the full reload duration, not per-shell), the magazine is refilled to `ammoMax` and `reloading` flips to false. The reload duration is ~1–1.5s per tank (90 / 70 / 60 ticks) so it throttles sustained spam, not ordinary play. `ammoBuffTimer` (from the ammoCrate pickup) multiplies the reload duration by 0.65. Test `AC` locks the drain → reload-trigger → full-refill flow and the per-tank differences.
 
 `dmg` is measured in **enemy hull points**, not shots: a light enemy has 2 hp, so `standard` kills it in one hit and `scout` needs exactly two. Test `Y` asserts that `scout.dmg * 2 === light.hp`.
 
